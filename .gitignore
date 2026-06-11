@@ -5,3 +5,6 @@ results/cache/scores*.parquet
 data/all_data.csv
 *.parquet
 !results/cache/raid_*.parquet
+paper/*.aux
+paper/*.log
+paper/*.out
