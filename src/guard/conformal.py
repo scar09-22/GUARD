@@ -29,6 +29,11 @@ def conformal_pvalues(cal_scores: np.ndarray, test_scores: np.ndarray) -> np.nda
 
     p(x) = (1 + #{i: cal_i >= s(x)}) / (n + 1). Ties count toward the calibration side,
     which is the conservative direction (larger p, fewer flags).
+
+    A non-finite test score (NaN: the scorer could not evaluate the text) carries no
+    evidence of AI authorship, so it gets p = 1 and is never flagged. (Without this guard,
+    searchsorted treats NaN as +inf and an unscoreable text would receive the MINIMAL
+    p-value 1/(n+1), i.e. be accused with maximal confidence.)
     """
     cal = np.asarray(cal_scores, dtype=float)
     test = np.asarray(test_scores, dtype=float)
@@ -38,7 +43,8 @@ def conformal_pvalues(cal_scores: np.ndarray, test_scores: np.ndarray) -> np.nda
     # number of cal < s  -> index from searchsorted(left); cal >= s = n - that
     n_less = np.searchsorted(cal_sorted, test, side="left")
     n_geq = n - n_less
-    return (1.0 + n_geq) / (n + 1.0)
+    p = (1.0 + n_geq) / (n + 1.0)
+    return np.where(np.isfinite(test), p, 1.0)
 
 
 def flag(cal_scores: np.ndarray, test_scores: np.ndarray, alpha: float) -> np.ndarray:
@@ -125,6 +131,35 @@ def evaluate_certificate(
         n_test_human=int(th.size), n_test_ai=n_ai,
         violation_p=violation_pvalue(int(fl_h.sum()), int(th.size), int(cal.size), alpha),
     )
+
+
+# ------------------------- Edit-robust (editor-aware) calibration ------------------------ #
+
+def robust_calibration_scores(
+    clean_scores: np.ndarray,
+    edited_scores: np.ndarray,
+) -> np.ndarray:
+    """Editor-aware calibration scores: per calibration text, the max of its clean score and
+    the scores of k sampled edits of that text.
+
+    ``edited_scores`` has shape [n_cal, k] (NaN entries ignored). Returns shape [n_cal].
+
+    Guarantee (conservative validity under a modeled editor): suppose a test human applies
+    one edit drawn from the same edit process used to build the calibration variants, giving
+    test score S = s(edit(X)). Each calibration text contributes
+    M_i = max(s(X_i), s(edit_1(X_i)), ..., s(edit_k(X_i))) >= s(edit_j(X_i)) for every j, so
+    (M_1, ..., M_n, S) is a sequence in which S is stochastically no larger than a fresh M
+    would be; conformal p-values computed against {M_i} are therefore super-uniform and
+    P(flag) <= alpha still holds. The price is power (thresholds move up). The guarantee is
+    with respect to the MODELED editor; transfer to a mismatched editor is an empirical
+    question (experiment E8 measures it).
+    """
+    clean = np.asarray(clean_scores, dtype=float).reshape(-1, 1)
+    edited = np.asarray(edited_scores, dtype=float)
+    if edited.ndim == 1:
+        edited = edited.reshape(-1, 1)
+    stacked = np.concatenate([clean, edited], axis=1)
+    return np.nanmax(stacked, axis=1)
 
 
 # ----------------------------- Mondrian (group-conditional) ----------------------------- #
