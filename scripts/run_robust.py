@@ -7,12 +7,15 @@ score over its clean version and k sampled edits from a modeled editor, which pr
 restores P(flag | edited human) <= alpha when the deployment editor matches the modeled one
 (conservative under stochastic dominance), at a measurable cost in power.
 
-Conditions evaluated for naive vs robust calibration, per scorer, per alpha:
-  clean humans            (both certificates should hold; robust is conservative)
-  synonym@r_model humans  (matched editor: naive violates, robust must hold — THE claim)
-  synonym@r_high humans   (stronger-than-modeled editor: transfer measured)
-  fw@r_model humans       (mismatched editor family: transfer measured)
-  clean AI / synonym AI   (power and its cost)
+The modeled editor is the fluency-RAISING cleanup editor (spell/punctuation normalisation —
+the realistic proxy for grammar tools), since lexical-noise editors (synonym/fw) move human
+scores AWAY from the flagging region for likelihood scorers (E4 finding). Conditions, for
+naive vs robust calibration, per scorer, per alpha:
+  human_clean             (both certificates hold; robust is conservative)
+  human_cleanup_model     (matched editor: robust must hold — THE claim)
+  human_cleanup_full      (full cleanup, included in the calibration max — must hold)
+  human_syn_03 / human_fw_03  (different editor families: transfer measured)
+  ai_clean / ai_cleanup_full  (power and its cost)
 
 Scores are cached by text hash, so calibration-edit variants are scored once ever.
 """
@@ -24,7 +27,7 @@ import argparse
 import numpy as np
 
 from guard.data import load_maide_english, grouped_split, humans, ais
-from guard.attacks import synonym_perturb, fw_perturb
+from guard.attacks import synonym_perturb, fw_perturb, cleanup_perturb
 from guard.scores import GPT2Scores, TfidfScorer, compute_scores
 from guard.conformal import (
     flag, robust_calibration_scores, violation_pvalue,
@@ -39,9 +42,9 @@ def main():
     ap.add_argument("--scorers", nargs="+",
                     default=["loglik", "logrank", "entropy", "fast_detectgpt", "tfidf"])
     ap.add_argument("--alphas", type=float, nargs="+", default=[0.01, 0.05, 0.10])
-    ap.add_argument("--k_edits", type=int, default=8, help="modeled-editor samples per cal text")
-    ap.add_argument("--r_model", type=float, default=0.3, help="modeled editor edit rate")
-    ap.add_argument("--r_high", type=float, default=0.5, help="stronger-than-modeled rate")
+    ap.add_argument("--k_edits", type=int, default=4, help="modeled-editor samples per cal text")
+    ap.add_argument("--r_model", type=float, default=0.5, help="modeled cleanup-editor rate")
+    ap.add_argument("--r_high", type=float, default=1.0, help="full-cleanup rate")
     ap.add_argument("--R", type=int, default=200)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", default="cpu")
@@ -58,15 +61,21 @@ def main():
     # --- text sets -------------------------------------------------------------------- #
     H = eval_h["text"].tolist()
     A = eval_a["text"].tolist()
-    cal_edit_variants = [[synonym_perturb(t, args.r_model, seed=1000 + 17 * i + j)
-                          for j in range(args.k_edits)] for i, t in enumerate(H)]
+    # Modeled editor = fluency-raising cleanup (the editor family that actually inflates
+    # human scores): k sampled partial cleanups (rate r_model) plus the full cleanup.
+    cal_edit_variants = [
+        [cleanup_perturb(t, args.r_model, seed=1000 + 17 * i + j) for j in range(args.k_edits)]
+        + [cleanup_perturb(t, args.r_high, seed=0)]
+        for i, t in enumerate(H)
+    ]
     test_sets = {
         "human_clean": H,
-        "human_syn_model": [synonym_perturb(t, args.r_model, seed=5000 + i) for i, t in enumerate(H)],
-        "human_syn_high": [synonym_perturb(t, args.r_high, seed=6000 + i) for i, t in enumerate(H)],
-        "human_fw_model": [fw_perturb(t, args.r_model, seed=7000 + i) for i, t in enumerate(H)],
+        "human_cleanup_model": [cleanup_perturb(t, args.r_model, seed=5000 + i) for i, t in enumerate(H)],
+        "human_cleanup_full": [cleanup_perturb(t, args.r_high, seed=0) for t in H],
+        "human_syn_03": [synonym_perturb(t, 0.3, seed=6000 + i) for i, t in enumerate(H)],
+        "human_fw_03": [fw_perturb(t, 0.3, seed=7000 + i) for i, t in enumerate(H)],
         "ai_clean": A,
-        "ai_syn_model": [synonym_perturb(t, args.r_model, seed=8000 + i) for i, t in enumerate(A)],
+        "ai_cleanup_full": [cleanup_perturb(t, args.r_high, seed=0) for t in A],
     }
 
     # --- score everything once (cached) ------------------------------------------------ #
@@ -88,7 +97,7 @@ def main():
 
     for scorer in args.scorers:
         s_clean_h = S["human_clean"][scorer].to_numpy()
-        s_variants = S["cal_edit_variants"][scorer].to_numpy().reshape(n_h, args.k_edits)
+        s_variants = S["cal_edit_variants"][scorer].to_numpy().reshape(n_h, args.k_edits + 1)
         s_robust_all = robust_calibration_scores(s_clean_h, s_variants)  # per human text
 
         for r in range(args.R):

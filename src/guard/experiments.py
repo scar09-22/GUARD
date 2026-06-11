@@ -101,7 +101,7 @@ DEFAULT_CFG: dict[str, Any] = {
     "max_gpt2_texts": None,  # cap per base text set, smoke runs only
 }
 
-_ATTACK_KINDS = ("fw", "synonym")
+_ATTACK_KINDS = ("fw", "synonym", "cleanup")
 _E6_ALPHAS = (0.05, 0.01)
 _LENGTH_BIN_EDGES = (0, 30, 60, 120, 10_000)  # mirrors guard.conformal.length_bins default
 
@@ -404,6 +404,9 @@ _ATTACK_FN_NAMES: dict[str, tuple[str, ...]] = {
         "synonym_substitution",
         "substitute_synonyms",
         "synonym_perturbation",
+    ),
+    "cleanup": (
+        "cleanup_perturb",  # fluency-INCREASING editor (spell/punct normalisation)
     ),
 }
 _ATTACK_DISPATCH_NAMES = ("apply_attack", "attack", "perturb_text", "perturb")

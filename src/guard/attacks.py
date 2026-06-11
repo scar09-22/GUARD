@@ -29,6 +29,7 @@ __all__ = [
     "FUNCTION_WORDS",
     "fw_perturb",
     "synonym_perturb",
+    "cleanup_perturb",
     "perturb_frame",
 ]
 
@@ -197,13 +198,60 @@ def synonym_perturb(text: str, rate: float, seed: int) -> str:
     return " ".join(out)
 
 
+_SPELL = None  # lazy singleton
+_SPELL_CACHE: dict[str, str] = {}
+
+
+def _get_spell():
+    global _SPELL
+    if _SPELL is None:
+        from spellchecker import SpellChecker
+        _SPELL = SpellChecker(distance=2)  # distance-2 catches e.g. atmosfere -> atmosphere
+    return _SPELL
+
+
+def cleanup_perturb(text: str, rate: float, seed: int) -> str:
+    """Fluency-INCREASING editor: the realistic 'innocent tool-assisted writing' proxy.
+
+    Unlike fw_perturb / synonym_perturb (which add lexical noise and make text LESS fluent,
+    moving humans AWAY from the AI-like score region), this models what grammar/spell tools
+    actually do first: correct misspellings and normalise spacing/casing/punctuation, which
+    RAISES likelihood under a language model and therefore pushes human text TOWARD the
+    flagging region. `rate` is the probability that each detected misspelling is corrected
+    (rate=1.0 -> full cleanup); whitespace normalisation always applies for rate > 0.
+    """
+    if rate <= 0:
+        return text
+    rng = _rng_for(text, rate, seed)
+    spell = _get_spell()
+    out = []
+    for token in str(text).split():
+        pre, core, post = _split_token(token)
+        if core and core.isalpha() and len(core) > 3 and rng.random() < rate:
+            low = core.lower()
+            if low not in _SPELL_CACHE:
+                corr = spell.correction(low) if low in spell.unknown([low]) else low
+                _SPELL_CACHE[low] = corr if corr else low
+            fixed = _SPELL_CACHE[low]
+            if fixed != low:
+                core = _match_case(fixed, core)
+        out.append(f"{pre}{core}{post}")
+    cleaned = " ".join(out)
+    # Normalise repeated punctuation and stray spacing (what editors do silently).
+    cleaned = re.sub(r"\s+([.,!?;:])", r"\1", cleaned)
+    cleaned = re.sub(r"([.,!?;:]){2,}", r"\1", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    return cleaned
+
+
 def perturb_frame(df: pd.DataFrame, kind: str, rate: float, seed: int) -> pd.DataFrame:
     """Return a copy of `df` with the text column attacked; all other columns untouched.
 
-    kind: "fw" (function-word perturbation) or "synonym" (WordNet substitution).
+    kind: "fw" (function-word perturbation), "synonym" (WordNet substitution), or
+    "cleanup" (fluency-increasing spell/punctuation normalisation).
     Each row's perturbation is keyed to its own text, so results do not depend on row order.
     """
-    fns = {"fw": fw_perturb, "synonym": synonym_perturb}
+    fns = {"fw": fw_perturb, "synonym": synonym_perturb, "cleanup": cleanup_perturb}
     if kind not in fns:
         raise ValueError(f"kind must be one of {sorted(fns)}, got {kind!r}")
     fn = fns[kind]
