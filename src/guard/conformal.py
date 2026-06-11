@@ -133,6 +133,64 @@ def evaluate_certificate(
     )
 
 
+# --------------------- Population-shift bounds and transfer diagnostics ------------------ #
+#
+# Proposition (Gamma-bound). Let P be the human score distribution the certificate was
+# calibrated on and Q the deployment human score distribution. If Q << P with
+# ess-sup dQ/dP <= Gamma on score space, then for the split-conformal rule at level alpha,
+#   E_Q[FPR] = E_T[ Q(s > T) ] <= Gamma * E_T[ P(s > T) ] <= Gamma * alpha.
+# Proof: Q(A) <= Gamma P(A) for every measurable A; apply with A = {s > T} conditionally on
+# the calibration threshold T, then take expectations over T.
+#
+# Proposition (TV-bound). Without absolute-continuity assumptions,
+#   E_Q[FPR] <= alpha + TV(P_s, Q_s),
+# since |Q(A) - P(A)| <= TV for every event A. Both bounds live on 1-D SCORE space, so they
+# are estimable from samples — which is what makes pre-deployment diagnostics possible.
+
+def predicted_fpr_bounds(cal_scores: np.ndarray, pilot_scores: np.ndarray,
+                         alpha: float, n_bins: int = 10) -> dict:
+    """Theorem-side predicted FPR bounds from calibration scores vs a pilot sample of
+    deployment-human scores: the TV bound (alpha + TV_hat) and the Gamma bound
+    (Gamma_hat * alpha) with binned plug-in estimates. These are diagnostics, not
+    certificates: plug-in TV/Gamma estimates carry their own sampling error."""
+    cal = np.asarray(cal_scores, dtype=float)
+    pil = np.asarray(pilot_scores, dtype=float)
+    pil = pil[np.isfinite(pil)]
+    lo = min(cal.min(), pil.min()); hi = max(cal.max(), pil.max())
+    edges = np.linspace(lo, hi, n_bins + 1)
+    p, _ = np.histogram(cal, bins=edges); q, _ = np.histogram(pil, bins=edges)
+    p = p / p.sum(); q = q / q.sum()
+    tv_hat = 0.5 * np.abs(p - q).sum()
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.where(p > 0, q / p, np.inf)
+    gamma_hat = float(np.max(ratio[q > 0])) if np.any(q > 0) else float("inf")
+    return {"tv_hat": float(tv_hat), "tv_bound": float(alpha + tv_hat),
+            "gamma_hat": gamma_hat,
+            "gamma_bound": float(min(1.0, gamma_hat * alpha))}
+
+
+def pilot_fpr_ucb(cal_scores: np.ndarray, pilot_scores: np.ndarray, alpha: float,
+                  confidence: float = 0.95, alarm_level: float = 0.10) -> dict:
+    """Pre-deployment certificate health check from m known-human pilot texts.
+
+    Flags each pilot text with the deployed rule and reports two complementary readings:
+    * ``alarm``: the FAILURE DETECTOR — an exact one-sided binomial test of
+      H0: FPR <= alpha; alarm = True when H0 is rejected at ``alarm_level`` (the certificate
+      is demonstrably broken for this population). Calibrated: under a valid certificate the
+      alarm fires with probability <= alarm_level regardless of m.
+    * ``fpr_ucb``: the exact Clopper-Pearson upper confidence bound on deployment FPR — what
+      can be ASSURED. With small m this is necessarily loose (one cannot certify a 5% rate
+      from 50 samples); it quantifies how much assurance the pilot can buy.
+    """
+    fl = flag(cal_scores, pilot_scores, alpha)
+    k, mm = int(fl.sum()), int(fl.size)
+    ucb = float(scipy_stats.beta.ppf(confidence, k + 1, mm - k)) if k < mm else 1.0
+    # Exact binomial tail: P(Bin(m, alpha) >= k) — small means FPR>alpha is demonstrated.
+    pval = float(scipy_stats.binom.sf(k - 1, mm, alpha)) if mm else 1.0
+    return {"m": mm, "flags": k, "fpr_point": k / mm if mm else float("nan"),
+            "fpr_ucb": ucb, "test_pvalue": pval, "alarm": bool(pval < alarm_level)}
+
+
 # ------------------------- Edit-robust (editor-aware) calibration ------------------------ #
 
 def robust_calibration_scores(
