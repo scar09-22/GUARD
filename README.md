@@ -98,3 +98,19 @@ GUARD/
 ├── figures/                # regenerated from results JSON
 └── paper/
 ```
+
+## Results at a glance (alpha = 0.05, R = 200 resamples)
+
+| Condition | loglik | entropy | tfidf | Certificate |
+|---|---|---|---|---|
+| In-domain humans | 0.047 | 0.051 | 0.050 | **exact** |
+| Reviews-domain humans (population shift) | 0.45 | 0.54 | 0.00 | **broken** (likelihood) / safe (supervised) |
+| Abstracts humans (domain shift) | 0.12 | 0.27 | 0.01 | broken / safe |
+| Cleanup-edited humans (grammar-tool proxy) | 0.048 | 0.045 | 0.049 | holds |
+| Synonym/FW-edited humans (lexical noise) | ≤0.005 | ≤0.01 | ≤0.05 | holds (conservative) |
+| Long humans, marginal calibration | 0.18 | — | — | length-biased |
+| Long humans, Mondrian calibration | 0.030 | — | — | repaired |
+
+Power at certified 5% FPR: TF-IDF 0.88 TPR in-domain; robust (editor-aware) calibration costs
+< 0.01 TPR. Full numbers: `results/guard_results.json`, `results/guard_robust.json`; paper:
+`paper/GUARD.tex` (compiles to 10 pp).
