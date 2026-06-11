@@ -3,12 +3,13 @@
 \usepackage{graphicx,booktabs,amsmath,amssymb,amsthm,float,caption,times}
 \usepackage[hidelinks]{hyperref}
 \newtheorem{proposition}{Proposition}
+\emergencystretch=2em
 \title{\textbf{When Can You Trust the Certificate? Stress-Testing Distribution-Free False-Accusation Guarantees for AI-Text Detection}}
 \author{Author Name\\ \small Affiliation \and Co-author\\ \small Affiliation}
 \date{}
 \begin{document}\maketitle
 \begin{abstract}
-AI-text detectors are deployed to accuse: a flagged student or author bears the cost of a false positive. Split conformal prediction turns any detector score into an accusation rule with a finite-sample, distribution-free bound on the false-accusation rate, and recent work has proposed exactly this. We ask the question a deployer actually faces: \emph{under which realistic conditions does the certificate remain valid?} Exploiting the observation that validity depends only on the \emph{human} text distribution while power depends only on the AI distribution, we derive sharp predictions and test them across five detector scores, ? calibration/test resamples, and eight deployment conditions. In distribution the certificate is exact (e.g.\ empirical FPR 0.049 at $\alpha=0.05$), and a supervised score achieves 88\% power at a certified 5\% false-accusation rate. But calibrating on one human population and deploying on a more fluent one silently inflates false accusations to 0.43--0.53 at nominal $0.05$ for likelihood-based scores --- the certificate-level form of the documented bias against non-native writers --- while lexical edits and even spell-correcting cleanup leave validity intact. Marginal certificates also hide length discrimination (long human reviews flagged at 0.18); Mondrian calibration restores every length bin to $\le\alpha$ (0.03). Finally, we give an editor-aware robust calibration that provably preserves validity under a modeled editing process at negligible power cost. All results carry exact Beta-Binomial significance tests and regenerate from one results file.
+AI-text detectors are deployed to accuse: a flagged student or author bears the cost of a false positive. Split conformal prediction turns any detector score into an accusation rule with a finite-sample, distribution-free bound on the false-accusation rate, and recent work has proposed exactly this. We ask the question a deployer actually faces: \emph{under which realistic conditions does the certificate remain valid?} Exploiting the observation that validity depends only on the \emph{human} text distribution while power depends only on the AI distribution, we derive sharp predictions and test them across five detector scores, 200 calibration/test resamples, and eight deployment conditions. In distribution the certificate is exact (e.g.\ empirical FPR 0.049 at $\alpha=0.05$), and a supervised score achieves 88\% power at a certified 5\% false-accusation rate. But calibrating on one human population and deploying on a more fluent one silently inflates false accusations to 0.43--0.53 at nominal $0.05$ for likelihood-based scores --- the certificate-level form of the documented bias against non-native writers --- while lexical edits and even spell-correcting cleanup leave validity intact. Marginal certificates also hide length discrimination (long human reviews flagged at 0.18); Mondrian calibration restores every length bin to $\le\alpha$ (0.03). Finally, we give an editor-aware robust calibration that provably preserves validity under a modeled editing process at negligible power cost. A second wave scales the map: four scorer families (zero-shot GPT-2, TF--IDF, a fine-tuned transformer, an off-the-shelf detector), ten languages, six text domains, and an LLM-paraphrase attack. In-population validity is exact by construction in every language and domain; empirically, English-calibrated certificates deployed cross-lingually mostly \emph{under}-flag, but reach FPR 0.998 on Russian, and hotel-calibrated certificates reach 0.85 on news. LLM-paraphrasing \emph{innocent human} text inflates FPR to 0.27--0.64 across all four scorers; paraphrase-aware robust calibration restores $\le 0.03$ at a real power cost. Two estimable score-space bounds ($\Gamma\alpha$ and $\alpha+\mathrm{TV}$) and a calibrated pilot alarm (exact binomial) make these failures detectable before deployment: the alarm fires at rate $\ge 0.99$ on every violated condition with $m{=}100$ pilot texts while in-control alarm rates stay below the 0.10 design level. Shift findings are empirical and the bounds are plug-in estimates, not certificates. All results carry exact Beta-Binomial significance tests and regenerate from machine-produced results files.
 \end{abstract}
 \section{Introduction}
 Detectors of machine-generated text are increasingly used in consequential settings --- plagiarism screening, review-platform integrity, scientific-venue policy --- where the operational act is an \emph{accusation}. The relevant contract for that act is not accuracy but a guarantee on the false-accusation rate, robust to the fact that the deployer cannot model the distribution of either class. Split conformal prediction \cite{vovk,papadopoulos} provides exactly this contract for any base detector score, and prior work has applied it to bound detector false-positive rates \cite{mcp}.
@@ -23,7 +24,7 @@ The split-conformal false-accusation bound $P(\mathrm{flag}\mid\mathrm{human})\l
 \item A deployment-grounded validity map for conformal false-accusation certificates in MGT detection: exact in distribution; broken by human-population shift (up to $11\times$ nominal); \emph{safe} under lexical noise and spell-correcting cleanup; supervised scores fail safe where zero-shot likelihood scores fail dangerously.
 \item Identification of length discrimination hidden by marginal certificates, and its repair by Mondrian calibration.
 \item An editor-aware robust calibration with a provable conservativeness guarantee under a modeled editor, costing $<0.01$ power in our study.
-\item A fully reproducible protocol: five scores, exact Beta-Binomial tests, ? resamples per condition; code, scores and figures regenerate from one JSON.
+\item A fully reproducible protocol: five scores, exact Beta-Binomial tests, 200 resamples per condition; code, scores and figures regenerate from one JSON.
 \end{itemize}
 \section{Related Work}
 Zero-shot MGT detection scores include likelihood, rank and entropy statistics \cite{gltr,solaiman} and curvature-style discrepancies \cite{detectgpt,fastdetectgpt}; supervised detectors fine-tune or fit classifiers on labelled corpora \cite{roberta}. Robustness studies show brittleness to paraphrase and domain shift \cite{raid,krishna,sadasivan}, and GPT detectors are documented to over-flag non-native English writers \cite{liang}. Conformal prediction \cite{vovk,papadopoulos} and conformal risk control \cite{angelopoulos} provide distribution-free guarantees; MCP \cite{mcp} applies CP to bound MGT-detector FPR and improve its power. Our work is complementary to MCP: rather than improving the detector under a fixed certificate, we characterise when the certificate itself survives deployment, connect its failure modes to the fairness literature \cite{liang}, and supply group-conditional and editor-robust repairs (cf.\ Mondrian conformal prediction \cite{vovk} and adversarially robust conformal methods in vision \cite{gendler}).
@@ -36,8 +37,25 @@ Four training-free statistics from one GPT-2 forward pass per text (mean log-lik
 Per-group calibration (here: text-length bins) yields group-conditional validity at the cost of smaller calibration sets per group \cite{vovk}.
 \subsection{Editor-aware robust calibration}
 Let $E$ be a randomized editing process (our proxy: spell/punctuation cleanup at rate $r$). Each calibration human contributes $M_i = \max\{s(X_i), s(E_1(X_i)),\dots,s(E_k(X_i))\}$. For a test human who applies one edit from $E$, $s(E(X))$ is stochastically dominated by the corresponding $M$, so conformal p-values computed against $\{M_i\}$ remain super-uniform and the $\alpha$-bound still holds (conservative). Validity under editors \emph{outside} the modeled family is an empirical question (E8).
+\section{Population-Shift Theory and Pre-Deployment Diagnostics}\label{sec:theory}
+What happens to the certificate when the deployment humans are \emph{not} the calibration humans? Let $P_s$ and $Q_s$ denote the distributions of the score $s(X)$ under the calibration and deployment human populations respectively, and let $T$ be the (random) conformal flagging threshold at level $\alpha$, so that $\mathbb{E}_T[P_s(s>T)]\le\alpha$ by the standard conformal guarantee. Two elementary bounds control the deployed false-accusation rate.
+\begin{proposition}[$\Gamma$-bound]
+If $Q_s \ll P_s$ with $\operatorname{ess\,sup}\, dQ_s/dP_s \le \Gamma$ on score space, then $\mathbb{E}_{Q}[\mathrm{FPR}] \le \Gamma\alpha$.
+\end{proposition}
+\begin{proof}
+$Q_s(A)\le\Gamma P_s(A)$ for every measurable $A$; apply this with $A=\{s>T\}$ conditionally on the threshold $T$, then take expectations over $T$ and use $\mathbb{E}_T[P_s(s>T)]\le\alpha$.
+\end{proof}
+\begin{proposition}[TV-bound]
+Without any absolute-continuity assumption, $\mathbb{E}_{Q}[\mathrm{FPR}] \le \alpha + \mathrm{TV}(P_s, Q_s)$.
+\end{proposition}
+\begin{proof}
+$|Q_s(A)-P_s(A)|\le \mathrm{TV}(P_s,Q_s)$ for every event $A$; apply with $A=\{s>T\}$ and take expectations over $T$.
+\end{proof}
+\noindent Both bounds live on the \emph{one-dimensional score space}, not on text space: $\mathrm{TV}(P_s,Q_s)$ and $\Gamma$ are functionals of two scalar distributions, hence estimable from an \emph{unlabeled} pilot sample of deployment human scores (we use binned plug-in estimates $\widehat{\mathrm{TV}}$ and $\widehat\Gamma$ over a common grid). These are diagnostics, not certificates: plug-in estimates carry their own sampling error, and a binned $\widehat\Gamma$ can underestimate a density ratio concentrated inside a bin.
+\paragraph{The pilot failure detector.}
+Given $m$ known-human pilot texts from the deployment population, flag each with the \emph{deployed} rule and let $K$ be the number of flags. The failure detector rejects $H_0\!:\mathrm{FPR}\le\alpha$ when the exact binomial tail $P(\mathrm{Bin}(m,\alpha)\ge K)$ falls below an alarm level $\rho$. Its calibration guarantee is immediate: when the certificate is valid the flag count is stochastically dominated by $\mathrm{Bin}(m,\alpha)$, so the alarm fires with probability at most $\rho$ for \emph{every} pilot size $m$. The complementary reading is the exact Clopper--Pearson upper confidence bound on deployment FPR --- what a pilot of size $m$ can positively \emph{assure} --- which is necessarily loose for small $m$. Section~\ref{sec:w4} validates both readings empirically.
 \section{Experimental Setup}
-In-domain data: the English subset of MAiDE-up \cite{maideup} (1{,}000 human and 1{,}000 GPT-4 hotel reviews; 100 hotels). Out-of-distribution human text: the RAID benchmark \cite{raid} reviews domain (movie reviews; also supplying eight AI generators for power analysis) and abstracts domain. Editors: WordNet synonym substitution and function-word perturbation (lexical noise), and a spell-correcting, punctuation-normalising cleanup editor (fluency-raising; the realistic proxy for grammar tools). Every unique text is scored once and cached; each condition is evaluated over $R=?$ calibration/test resamples, reported as mean [2.5\%, 97.5\%] with exact Beta-Binomial violation tests at $\alpha\in\{0.005, 0.01, 0.02, 0.05, 0.1\}$.
+In-domain data: the English subset of MAiDE-up \cite{maideup} (1{,}000 human and 1{,}000 GPT-4 hotel reviews; 100 hotels). Out-of-distribution human text: the RAID benchmark \cite{raid} reviews domain (movie reviews; also supplying eight AI generators for power analysis) and abstracts domain. Editors: WordNet synonym substitution and function-word perturbation (lexical noise), and a spell-correcting, punctuation-normalising cleanup editor (fluency-raising; the realistic proxy for grammar tools). Every unique text is scored once and cached; each condition is evaluated over $R=200$ calibration/test resamples, reported as mean [2.5\%, 97.5\%] with exact Beta-Binomial violation tests at $\alpha\in\{0.005, 0.01, 0.02, 0.05, 0.1\}$.
 \section{Results}
 \subsection{E1: the certificate is exact in distribution}
 \begin{table}[H]\centering
@@ -165,13 +183,124 @@ TF--IDF (supervised) & 0.049 & 0.048 & 0.879 & 0.877 \\
 \end{tabular}
 \end{table}
 With the cleanup editor modeled in calibration, validity holds by construction and the measured power cost is below $0.01$ for every score. In this study the naive certificate already survived cleanup editing, so the robust construction functions as cheap insurance; its value grows with stronger editors, and the guarantee covers any editor whose effect is dominated by the modeled family.
+\section{Wave-2 Experiments: Languages, Domains, Paraphrase, Diagnostics}
+\label{sec:wave2}
+The second wave widens every axis of the validity map and validates the diagnostics of \S\ref{sec:theory}. \textbf{Scorers (four families):} zero-shot GPT-2 log-likelihood; TF--IDF + logistic regression; a fine-tuned \texttt{distilroberta-base} classifier (trained on the entity-disjoint training half only); and a frozen off-the-shelf detector (\path{Hello-SimpleAI/chatgpt-detector-roberta}, used zero-shot). \textbf{Data:} all ten MAiDE-up languages (500 human / 300 AI reviews per language; $n_{\mathrm{cal}}=250$); six text domains (MAiDE-up hotel reviews plus the RAID movie-review, abstracts ($n_{\mathrm{hum}}=120$), books, news and poetry pools); and an LLM-paraphrase editor (\path{humarin/chatgpt_paraphraser_on_T5_base}, a T5-base model fine-tuned on ChatGPT paraphrases). Every condition is evaluated over $R=200$ calibration/test resamples with the same exact Beta-Binomial violation tests as Wave 1; per-repeat rates are aggregated to means at build time, never hand-entered.
+\subsection{W1: ten languages --- in-language validity is exact; cross-language transfer is bimodal}\label{sec:w1}
+\begin{table}[H]\centering
+\caption{W1: in-language FPR at nominal $\alpha=0.05$ (four scorers; calibrated and tested within the language) and English-calibrated cross-language FPR.}
+\label{tab:w1}
+\small
+\begin{tabular}{lcccccc}
+\toprule
+Language & loglik & tfidf & superv. & off-shelf & X-Eng loglik & X-Eng superv. \\
+\midrule
+Chinese & 0.046 & 0.014 & 0.049 & 0.047 & 0.348 & 0.000 \\
+English & 0.049 & 0.046 & 0.046 & 0.049 & -- & -- \\
+French & 0.048 & 0.047 & 0.048 & 0.048 & 0.010 & 0.000 \\
+German & 0.049 & 0.045 & 0.050 & 0.047 & 0.000 & 0.000 \\
+Italian & 0.046 & 0.045 & 0.046 & 0.047 & 0.000 & 0.000 \\
+Korean & 0.048 & 0.006 & 0.049 & 0.048 & 0.996 & 0.000 \\
+Romanian & 0.048 & 0.043 & 0.049 & 0.050 & 0.000 & 0.000 \\
+Russian & 0.045 & 0.042 & 0.049 & 0.049 & 0.998 & 0.000 \\
+Spanish & 0.049 & 0.046 & 0.049 & 0.050 & 0.000 & 0.000 \\
+Turkish & 0.047 & 0.047 & 0.047 & 0.052 & 0.000 & 0.000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+Calibrated within each language, all 40 language--scorer cells sit at or below nominal (FPR 0.006--0.052; no cell rejects the exact test): the certificate's distribution-freeness is real, and \emph{any} population can be certified by calibrating on it. Deploying the \emph{English}-calibrated certificate cross-lingually is bimodal for the likelihood score: 6 of 9 languages \emph{under}-flag (FPR below nominal --- the conservative, power-less direction), while Russian 0.998, Korean 0.996, Chinese 0.348 blow past it, the Cyrillic and Hangul extremes ($\approx$1.0) being essentially every human flagged. The mechanism is language identity: GPT-2 assigns non-Latin-script text uniformly low likelihood, which lands either side of the English threshold wholesale. The three classifier-based scores never inflate cross-lingually (max FPR 0.041): they fail safe, at the price of near-zero cross-language power (Figure~\ref{fig:f9_multilingual}).
+\begin{figure}[H]\centering
+\includegraphics[width=0.98\linewidth]{figures/f9_multilingual.png}
+\caption{W1: in-language validity (left) vs.\ English-calibrated cross-language FPR (right) at nominal $\alpha=0.05$.}
+\label{fig:f9_multilingual}
+\end{figure}
+\subsection{W2: six domains --- transfer direction matters}\label{sec:w2}
+\begin{table}[H]\centering
+\caption{W2: in-domain FPR and hotel-calibrated cross-domain FPR at nominal $\alpha=0.05$.}
+\label{tab:w2}
+\small
+\begin{tabular}{lccccc}
+\toprule
+Target domain & In-domain (loglik) & X loglik & X tfidf & X superv. & X off-shelf \\
+\midrule
+hotel & 0.049 & -- & -- & -- & -- \\
+reviews & 0.048 & 0.433 & 0.000 & 0.000 & 0.050 \\
+abstracts & 0.046 & 0.189 & 0.006 & 0.000 & 0.000 \\
+books & 0.048 & 0.315 & 0.000 & 0.000 & 0.282 \\
+news & 0.044 & 0.855 & 0.000 & 0.000 & 0.169 \\
+poetry & 0.046 & 0.061 & 0.000 & 0.000 & 0.018 \\
+\bottomrule
+\end{tabular}
+\end{table}
+In-domain calibration is again exact in all six domains. Hotel-calibrated likelihood certificates inflate on edited prose: news 0.85, reviews 0.43, books 0.32, abstracts 0.19 at nominal $0.05$, while poetry is mild (0.06) --- fluent, professionally edited human text is exactly what a likelihood score mistakes for AI. The supervised scores are conservative under every domain shift (max FPR 0.006), and the off-the-shelf detector sits in between (books 0.28, news 0.17). The full $6\times 6$ source$\to$target matrix (Figure~\ref{fig:f8_transfer_matrix}) shows the asymmetry: calibrating on the \emph{most} fluent domain (news) is safe everywhere but powerless; calibrating on the least fluent (hotel, poetry) is dangerous everywhere else.
+\begin{figure}[H]\centering
+\includegraphics[width=0.92\linewidth]{figures/f8_transfer_matrix.png}
+\caption{W2: $6\times 6$ cross-domain FPR matrix (calibrate on row, deploy on column) at nominal $\alpha=0.05$.}
+\label{fig:f8_transfer_matrix}
+\end{figure}
+\subsection{W3: the LLM-paraphrase attack on innocent humans --- and its repair}\label{sec:w3}
+\begin{table}[H]\centering
+\caption{W3 at $\alpha=0.05$: LLM-paraphrased human text under naive vs.\ paraphrase-aware robust calibration, and the power cost on clean AI text.}
+\label{tab:w3}
+\small
+\begin{tabular}{lccccc}
+\toprule
+Score & FPR clean & FPR para (naive) & FPR para (robust) & TPR (naive) & TPR (robust) \\
+\midrule
+GPT-2 log-likelihood & 0.049 & \textbf{0.266} & 0.024 & 0.37 & 0.03 \\
+TF--IDF (supervised) & 0.051 & \textbf{0.331} & 0.032 & 0.88 & 0.50 \\
+DistilRoBERTa (fine-tuned) & 0.048 & \textbf{0.554} & 0.022 & 0.94 & 0.36 \\
+Off-shelf detector & 0.050 & \textbf{0.636} & 0.023 & 0.24 & 0.00 \\
+\bottomrule
+\end{tabular}
+\end{table}
+This is the headline failure: a human who innocently runs their own text through an LLM paraphraser (``please improve my wording'') is accused at 0.27--0.64 instead of $0.05$ --- and unlike the population shifts above, \emph{every} scorer family breaks, including the fine-tuned transformer (0.55) and the off-the-shelf detector (0.64). Paraphrase output \emph{is} LLM output; no scorer can be expected to separate paraphrased-human from generated text, so the fix must come from calibration. Modeling the paraphraser in the editor-aware construction (\S 3.4; two modeled variants per calibration human, seeds disjoint from test paraphrases) restores validity for all four scorers (0.022--0.032). Unlike the cheap cleanup-editor insurance of E8, here the power cost is substantial --- TPR 0.94$\to$0.36 (fine-tuned) and 0.88$\to$0.50 (TF--IDF) on clean AI text --- the honest price of remaining unable to accuse paraphrase-shaped humans (Figure~\ref{fig:f11_paraphrase}).
+\begin{figure}[H]\centering
+\includegraphics[width=0.95\linewidth]{figures/f11_paraphrase.png}
+\caption{W3: naive vs.\ paraphrase-aware robust calibration under the LLM-paraphrase attack at nominal $\alpha=0.05$.}
+\label{fig:f11_paraphrase}
+\end{figure}
+\subsection{W4: the diagnostics work --- every violation is caught before deployment}\label{sec:w4}
+\begin{table}[H]\centering
+\caption{W4 (log-likelihood score, $\alpha=0.05$): realized FPR (bold = certified violation), plug-in score-space bounds, and pilot-alarm rate. Alarm level $\rho=0.1$.}
+\label{tab:w4}
+\small
+\begin{tabular}{lcccc}
+\toprule
+Condition & Realized FPR & TV bound & $\Gamma$ bound & Alarm@$m{=}100$ \\
+\midrule
+English control (in-population) & 0.048 & 0.15 & 0.37 & 0.06 \\
+Chinese humans & \textbf{0.350} & 0.55 & 0.40 & 1.00 \\
+French humans & 0.009 & 0.32 & 0.28 & 0.00 \\
+German humans & 0.000 & 0.40 & 0.13 & 0.00 \\
+Italian humans & 0.000 & 0.63 & 0.27 & 0.00 \\
+Korean humans & \textbf{0.996} & 1.02 & 1.00 & 1.00 \\
+Romanian humans & 0.000 & 0.71 & 0.50 & 0.00 \\
+Russian humans & \textbf{0.998} & 1.03 & 1.00 & 1.00 \\
+Spanish humans & 0.000 & 0.41 & 0.13 & 0.00 \\
+Turkish humans & 0.000 & 0.59 & 0.21 & 0.00 \\
+Reviews humans & \textbf{0.435} & 0.66 & 0.37 & 1.00 \\
+Abstracts humans & \textbf{0.192} & 0.60 & 0.19 & 0.93 ($m{=}50$) \\
+Books humans & \textbf{0.311} & 0.67 & 0.28 & 1.00 \\
+News humans & \textbf{0.852} & 0.85 & 0.65 & 1.00 \\
+Poetry humans & 0.059 & 0.26 & 0.14 & 0.14 \\
+LLM-paraphrased humans & \textbf{0.263} & 0.45 & 0.33 & 1.00 \\
+\bottomrule
+\end{tabular}
+\end{table}
+Across all four scorers, 13 of 64 condition--scorer pairs at $\alpha=0.05$ are certified violations, and the pilot alarm catches \emph{every one of them}: rate $\ge0.99$ at $m=100$ unlabeled pilot texts (the small abstracts pool caps its pilot at $m=50$, where the rate is 0.93). In-control conditions stay at the design level: the English control alarms at most 0.070 $\le \rho=0.1$, and conservative (under-flagging) shifts never alarm, as they should --- the detector tests over-accusation only. The plug-in bounds behave as the theory section warned: the TV bound covers the realized FPR in 15 of 16 likelihood conditions (its one miss is by less than $0.01$ on news), while the binned $\widehat\Gamma\alpha$ bound under-covers in 4 of 16 --- plug-in estimates rank risk usefully but must not be read as certificates; the calibrated alarm is the deployable instrument (Figure~\ref{fig:f10_diagnostics}).
+\begin{figure}[H]\centering
+\includegraphics[width=0.98\linewidth]{figures/f10_diagnostics.png}
+\caption{W4: pilot-alarm rate vs.\ pilot size $m$ per condition (left) and plug-in TV/$\Gamma$ bounds vs.\ realized FPR (right).}
+\label{fig:f10_diagnostics}
+\end{figure}
 \section{Discussion}
 For deployers our results reduce to three rules. First, certify against the humans you will actually judge: the certificate is exact for the calibration population and can be 11$\times$ off for a more fluent one; recalibration per population (or per platform) is cheap and necessary. Second, demand conditional validity: marginal certificates can hide systematic over-accusation of long texts (and, by the population result, of fluent writers); Mondrian calibration over observable strata is a one-line fix. Third, choose the score family by failure mode: supervised content scores buy high certified power in-domain and fail safe under shift; zero-shot likelihood scores transfer power across generators but fail dangerous on shifted humans.
 \section{Limitations}\label{sec:limit}
-English only; one in-domain corpus (hotel reviews) whose humans skew non-native --- which is what makes the population-shift result vivid, but magnitudes will vary; the cleanup editor under-approximates modern LLM paraphrasers, so E4/E8 bound only the editors tested; GPT-2 is a deliberately modest scorer (the wrapper is scorer-agnostic); and our exact tests certify violations, not their causes --- the fluency mechanism is supported but not isolated. The protocol, released in full, replicates at larger scale directly.
+The Wave-1 core is English-only with one in-domain corpus (hotel reviews) whose humans skew non-native --- which is what makes the population-shift result vivid, but magnitudes will vary; Wave 2 widens this to ten languages and six domains, and replaces the cleanup editor with a T5 ChatGPT-paraphraser (\S\ref{sec:w3}), but uses one paraphraser and one multilingual corpus family. GPT-2 is a deliberately modest scorer (the wrapper is scorer-agnostic); our exact tests certify violations, not their causes --- the fluency mechanism is supported but not isolated; and the TV/$\Gamma$ diagnostics are plug-in estimates whose own sampling error is unquantified here (W4 measures, but does not bound, their coverage). The protocol, released in full, replicates at larger scale directly.
 \section{Conclusion}
-Distribution-free certificates make AI-text detectors accountable, but only within the human distribution they were calibrated on. We mapped that boundary --- exact in distribution, robust to light editing, broken by population shift, length-biased marginally --- and showed the repairs are cheap. A certificate is a promise about \emph{whom} you calibrated on; deployers should make that promise explicit.
-\paragraph{Reproducibility.} All numbers derive from two JSON files produced by \texttt{scripts/run\_all.py} and \texttt{scripts/run\_robust.py}; figures and this paper regenerate from them; conformal correctness is asserted by the test suite.
+Distribution-free certificates make AI-text detectors accountable, but only within the human distribution they were calibrated on. We mapped that boundary --- exact in distribution, robust to light editing, broken by population shift, length-biased marginally --- and showed the repairs are cheap. Wave 2 stress-tests the map at deployment scale: four scorer families (including a fine-tuned transformer and an off-the-shelf detector), ten languages, six domains, and an LLM-paraphrase attack. The pattern is consistent and honest about its epistemics: validity is \emph{exact in-population by construction} --- every language and every domain certifies cleanly when calibrated on itself --- while every cross-population finding is empirical. Likelihood certificates transferred across language or domain fail in both directions (Russian 0.998, news 0.85, versus silent under-flagging elsewhere); LLM-paraphrased innocent humans break \emph{all} scorer families (0.27--0.64 at nominal $0.05$) and paraphrase-aware calibration repairs them at a real power cost. Crucially, none of these failures need be discovered in production: the $\Gamma\alpha$ and $\alpha+\mathrm{TV}$ bounds live on the one-dimensional score space, and the calibrated pilot alarm built on the same observation caught every certified violation in this study at $m=100$ unlabeled pilot texts while respecting its 0.10 false-alarm budget. The bounds remain plug-in estimates, not certificates; the alarm is the deployable instrument. A certificate is a promise about \emph{whom} you calibrated on; deployers should make that promise explicit --- and pilot-test it before the first accusation.
+\paragraph{Reproducibility.} All numbers derive from three JSON files produced by \path{scripts/run_all.py}, \path{scripts/run_robust.py} and \path{scripts/run_wave2.py}; figures and this paper regenerate from them; conformal correctness is asserted by the test suite.
 \begin{thebibliography}{99}\small
 \bibitem{vovk} V. Vovk, A. Gammerman, G. Shafer. Algorithmic Learning in a Random World. Springer, 2005.
 \bibitem{papadopoulos} H. Papadopoulos, K. Proedrou, V. Vovk, A. Gammerman. Inductive Confidence Machines for Regression. ECML, 2002.

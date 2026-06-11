@@ -55,15 +55,18 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", default="results/guard_results.json")
     ap.add_argument("--robust", default="results/guard_robust.json")
+    ap.add_argument("--wave2", default="results/guard_wave2.json")
     ap.add_argument("--figdir", default="figures")
     ap.add_argument("--out", default="paper/GUARD.tex")
     args = ap.parse_args()
     R = json.load(open(args.results))
     RB = json.load(open(args.robust)) if os.path.exists(args.robust) else None
+    W2 = json.load(open(args.wave2)) if os.path.exists(args.wave2) else None
 
     meta = R.get("meta", {})
-    Rr = meta.get("R", "?")
-    alphas = meta.get("alphas", [0.005, 0.01, 0.02, 0.05, 0.10])
+    cfg = meta.get("cfg", {})
+    Rr = cfg.get("R", meta.get("R", len(R["e1"]["random"]["per_scorer"]["loglik"]["0.05"]["fpr"])))
+    alphas = cfg.get("alphas", meta.get("alphas", [0.005, 0.01, 0.02, 0.05, 0.10]))
 
     # extractors matched to the engine's real schema ----------------------------------- #
     def e1_fpr(scorer, alpha=0.05, split="random"):
@@ -91,12 +94,60 @@ def main():
     def rb_rate(scorer, mode, cond, alpha=0.05):
         return RB["summary"][f"{scorer}|{mode}|{cond}|{alpha}"]["mean"]
 
+    # extractors matched to the wave-2 schema (results/guard_wave2.json) --------------- #
+    W2SC = ["loglik", "tfidf", "supervised", "offshelf"]
+    W2LAB = {"loglik": "GPT-2 log-likelihood", "tfidf": "TF--IDF (supervised)",
+             "supervised": "DistilRoBERTa (fine-tuned)", "offshelf": "Off-shelf detector"}
+    if W2:
+        w1b, w2b = W2["w1_multilingual"], W2["w2_domains"]
+        w3b, w4b = W2["w3_paraphrase"], W2["w4_diagnostics"]
+        W2R = W2["meta"]["cfg"]["R"]
+        LANGS, ENG = w1b["languages"], w1b["english"]
+        DOMS = w2b["domains"]
+        ALARM_LVL = w4b["alarm_level"]
+
+        def w1_in(lang, s, a=0.05):           # in-language validity (per-repeat FPR list)
+            return w1b["per_language"][lang]["in_language"][s][str(a)]["fpr"]
+
+        def w1_pow(lang, s, a=0.05):          # in-language power (per-repeat TPR list)
+            return w1b["per_language"][lang]["power"][s][str(a)]["tpr"]
+
+        def w1_x(s, lang, a=0.05):            # English-calibrated cross-language FPR
+            return w1b["cross_from_english"][s][str(a)][lang]["fpr"]
+
+        def w2_in(dom, s, a=0.05):
+            return w2b["per_domain"][dom]["in_domain"][s][str(a)]["fpr"]
+
+        def w2_pow(dom, s, a=0.05):
+            return w2b["per_domain"][dom]["power"][s][str(a)]["tpr"]
+
+        def w2_x(s, dom, a=0.05):             # hotel-calibrated cross-domain FPR
+            return w2b["cross_from_hotel"][s][str(a)][dom]["fpr"]
+
+        def w3_fpr(s, mode, cond, a=0.05):    # mode in {naive, robust}; cond human_*
+            return w3b["per_scorer"][s][mode][cond][str(a)]["fpr"]
+
+        def w3_tpr(s, mode, cond, a=0.05):    # cond in {ai_clean, ai_para}
+            return w3b["per_scorer"][s][mode][cond][str(a)]["tpr"]
+
+        def w4_rec(cond, s, a=0.05):          # full diagnostics record per condition
+            return w4b["conditions"][cond][s][str(a)]
+
+        def w4_alarm(cond, s, a=0.05, m=100):
+            """Alarm rate at pilot size m; falls back to the largest available m
+            (small pools cap the pilot). Returns (m_used, rate)."""
+            ar = w4_rec(cond, s, a)["alarm_rate"]
+            avail = [int(k) for k, v in ar.items() if v is not None]
+            mu = m if ar.get(str(m)) is not None else max(avail)
+            return mu, ar[str(mu)]
+
     L = [
         r"\documentclass[11pt]{article}",
         r"\usepackage[margin=1in]{geometry}",
         r"\usepackage{graphicx,booktabs,amsmath,amssymb,amsthm,float,caption,times}",
         r"\usepackage[hidelinks]{hyperref}",
         r"\newtheorem{proposition}{Proposition}",
+        r"\emergencystretch=2em",
         r"\title{\textbf{When Can You Trust the Certificate? Stress-Testing Distribution-Free"
         r" False-Accusation Guarantees for AI-Text Detection}}",
         r"\author{Author Name\\ \small Affiliation \and Co-author\\ \small Affiliation}",
@@ -108,6 +159,46 @@ def main():
     ll_in = m(e1_fpr("loglik")); tf_tpr5 = m(e7_tpr("tfidf", 0.05))
     rev_ll = m(e2_humans_fpr("loglik")); rev_en = m(e2_humans_fpr("entropy"))
     e6_long_marg = m(e6_fpr("loglik", "marginal", 3)); e6_long_mond = m(e6_fpr("loglik", "mondrian", 3))
+
+    # wave-2 headline aggregates (all derived from the JSON at build time) ------------- #
+    w2_abs = ""
+    if W2:
+        ru_x = m(w1_x("loglik", "Russian"))
+        xlangs = [lg for lg in LANGS if lg != ENG]
+        n_under = sum(1 for lg in xlangs if m(w1_x("loglik", lg)) < 0.05)
+        news_x = m(w2_x("loglik", "news"))
+        para_naive = {s: m(w3_fpr(s, "naive", "human_para")) for s in W2SC}
+        para_rob = {s: m(w3_fpr(s, "robust", "human_para")) for s in W2SC}
+        pn_lo, pn_hi = min(para_naive.values()), max(para_naive.values())
+        pr_hi = max(para_rob.values())
+        # diagnostics headline: alarm rates on violated vs in-control conditions
+        viol_pairs = [(c, s) for c in w4b["conditions"] for s in W2SC
+                      if w4_rec(c, s)["violated"]]
+        viol_alarms = [w4_alarm(c, s) for c, s in viol_pairs]
+        min_viol_alarm = min(r for _, r in viol_alarms)
+        min_viol_alarm100 = min(r for mu, r in viol_alarms if mu == 100)
+        ctrl_max_alarm = max(w4_alarm("control_english", s)[1] for s in W2SC)
+        ll_conds = list(w4b["conditions"].keys())
+        tv_cov = sum(1 for c in ll_conds
+                     if w4_rec(c, "loglik")["tv_bound_mean"] >= m(w4_rec(c, "loglik")["fpr"]))
+        ga_cov = sum(1 for c in ll_conds
+                     if w4_rec(c, "loglik")["gamma_bound_mean"] >= m(w4_rec(c, "loglik")["fpr"]))
+        w2_abs = (
+            r" A second wave scales the map: four scorer families (zero-shot GPT-2, TF--IDF, a "
+            r"fine-tuned transformer, an off-the-shelf detector), ten languages, six text "
+            r"domains, and an LLM-paraphrase attack. In-population validity is exact by "
+            r"construction in every language and domain; empirically, English-calibrated "
+            rf"certificates deployed cross-lingually mostly \emph{{under}}-flag, but reach FPR "
+            rf"{ru_x:.3f} on Russian, and hotel-calibrated certificates reach {news_x:.2f} on "
+            rf"news. LLM-paraphrasing \emph{{innocent human}} text inflates FPR to "
+            rf"{pn_lo:.2f}--{pn_hi:.2f} across all four scorers; paraphrase-aware robust "
+            rf"calibration restores $\le {pr_hi:.2f}$ at a real power cost. Two estimable "
+            r"score-space bounds ($\Gamma\alpha$ and $\alpha+\mathrm{TV}$) and a calibrated "
+            r"pilot alarm (exact binomial) make these failures detectable before deployment: "
+            rf"the alarm fires at rate $\ge {min_viol_alarm100:.2f}$ on every violated "
+            rf"condition with $m{{=}}100$ pilot texts while in-control alarm rates stay below "
+            rf"the {ALARM_LVL:.2f} design level. Shift findings are empirical and the bounds "
+            r"are plug-in estimates, not certificates.")
     L += [r"\begin{abstract}",
         r"AI-text detectors are deployed to accuse: a flagged student or author bears the cost of a "
         r"false positive. Split conformal prediction turns any detector score into an accusation "
@@ -128,8 +219,8 @@ def main():
         rf"{e6_long_marg:.2f}); Mondrian calibration restores every length bin to "
         rf"$\le\alpha$ ({e6_long_mond:.2f}). Finally, we give an editor-aware robust calibration "
         r"that provably preserves validity under a modeled editing process at negligible power "
-        r"cost. All results carry exact Beta-Binomial significance tests and regenerate from one "
-        r"results file.",
+        r"cost." + w2_abs + " All results carry exact Beta-Binomial significance tests and "
+        r"regenerate from machine-produced results files.",
         r"\end{abstract}"]
 
     # ------------------------------ introduction ------------------------------ #
@@ -214,6 +305,50 @@ def main():
         r"stochastically dominated by the corresponding $M$, so conformal p-values computed "
         r"against $\{M_i\}$ remain super-uniform and the $\alpha$-bound still holds (conservative). "
         r"Validity under editors \emph{outside} the modeled family is an empirical question (E8).",]
+
+    # --------------------- population-shift theory + diagnostics --------------------- #
+    L += [r"\section{Population-Shift Theory and Pre-Deployment Diagnostics}\label{sec:theory}",
+        r"What happens to the certificate when the deployment humans are \emph{not} the "
+        r"calibration humans? Let $P_s$ and $Q_s$ denote the distributions of the score "
+        r"$s(X)$ under the calibration and deployment human populations respectively, and let "
+        r"$T$ be the (random) conformal flagging threshold at level $\alpha$, so that "
+        r"$\mathbb{E}_T[P_s(s>T)]\le\alpha$ by the standard conformal guarantee. Two elementary "
+        r"bounds control the deployed false-accusation rate.",
+        r"\begin{proposition}[$\Gamma$-bound]",
+        r"If $Q_s \ll P_s$ with $\operatorname{ess\,sup}\, dQ_s/dP_s \le \Gamma$ on score "
+        r"space, then $\mathbb{E}_{Q}[\mathrm{FPR}] \le \Gamma\alpha$.",
+        r"\end{proposition}",
+        r"\begin{proof}",
+        r"$Q_s(A)\le\Gamma P_s(A)$ for every measurable $A$; apply this with $A=\{s>T\}$ "
+        r"conditionally on the threshold $T$, then take expectations over $T$ and use "
+        r"$\mathbb{E}_T[P_s(s>T)]\le\alpha$.",
+        r"\end{proof}",
+        r"\begin{proposition}[TV-bound]",
+        r"Without any absolute-continuity assumption, $\mathbb{E}_{Q}[\mathrm{FPR}] \le "
+        r"\alpha + \mathrm{TV}(P_s, Q_s)$.",
+        r"\end{proposition}",
+        r"\begin{proof}",
+        r"$|Q_s(A)-P_s(A)|\le \mathrm{TV}(P_s,Q_s)$ for every event $A$; apply with "
+        r"$A=\{s>T\}$ and take expectations over $T$.",
+        r"\end{proof}",
+        r"\noindent Both bounds live on the \emph{one-dimensional score space}, not on text "
+        r"space: $\mathrm{TV}(P_s,Q_s)$ and $\Gamma$ are functionals of two scalar "
+        r"distributions, hence estimable from an \emph{unlabeled} pilot sample of deployment "
+        r"human scores (we use binned plug-in estimates $\widehat{\mathrm{TV}}$ and "
+        r"$\widehat\Gamma$ over a common grid). These are diagnostics, not certificates: "
+        r"plug-in estimates carry their own sampling error, and a binned $\widehat\Gamma$ can "
+        r"underestimate a density ratio concentrated inside a bin.",
+        r"\paragraph{The pilot failure detector.}",
+        r"Given $m$ known-human pilot texts from the deployment population, flag each with the "
+        r"\emph{deployed} rule and let $K$ be the number of flags. The failure detector rejects "
+        r"$H_0\!:\mathrm{FPR}\le\alpha$ when the exact binomial tail "
+        r"$P(\mathrm{Bin}(m,\alpha)\ge K)$ falls below an alarm level $\rho$. Its calibration "
+        r"guarantee is immediate: when the certificate is valid the flag count is "
+        r"stochastically dominated by $\mathrm{Bin}(m,\alpha)$, so the alarm fires with "
+        r"probability at most $\rho$ for \emph{every} pilot size $m$. The complementary "
+        r"reading is the exact Clopper--Pearson upper confidence bound on deployment FPR --- "
+        r"what a pilot of size $m$ can positively \emph{assure} --- which is necessarily loose "
+        r"for small $m$. Section~\ref{sec:w4} validates both readings empirically.",]
 
     # ------------------------------ setup ------------------------------ #
     L += [r"\section{Experimental Setup}",
@@ -332,6 +467,189 @@ def main():
             r"as cheap insurance; its value grows with stronger editors, and the guarantee covers "
             r"any editor whose effect is dominated by the modeled family.",]
 
+    # ------------------------------ wave-2 sections ------------------------------ #
+    if W2:
+        caps = w1b["caps"]
+        n_cal_w2 = w1b["per_language"][ENG]["n_cal"]
+        abs_nh = w2b["per_domain"]["abstracts"]["n_human"]
+        L += [r"\section{Wave-2 Experiments: Languages, Domains, Paraphrase, Diagnostics}",
+            r"\label{sec:wave2}",
+            r"The second wave widens every axis of the validity map and validates the "
+            r"diagnostics of \S\ref{sec:theory}. \textbf{Scorers (four families):} zero-shot "
+            r"GPT-2 log-likelihood; TF--IDF + logistic regression; a fine-tuned "
+            r"\texttt{distilroberta-base} classifier (trained on the entity-disjoint training "
+            r"half only); and a frozen off-the-shelf detector "
+            r"(\path{Hello-SimpleAI/chatgpt-detector-roberta}, used zero-shot). "
+            rf"\textbf{{Data:}} all ten MAiDE-up languages ({caps['human']} human / "
+            rf"{caps['ai']} AI reviews per language; $n_{{\mathrm{{cal}}}}={n_cal_w2}$); six "
+            r"text domains (MAiDE-up hotel reviews plus the RAID movie-review, abstracts "
+            rf"($n_{{\mathrm{{hum}}}}={abs_nh}$), books, news and poetry pools); and an "
+            r"LLM-paraphrase editor (\path{humarin/chatgpt_paraphraser_on_T5_base}, a "
+            r"T5-base model fine-tuned on ChatGPT paraphrases). Every condition is evaluated "
+            rf"over $R={W2R}$ calibration/test resamples with the same exact Beta-Binomial "
+            r"violation tests as Wave 1; per-repeat rates are aggregated to means at build "
+            r"time, never hand-entered.",]
+
+        # ------------------------------- W1 ------------------------------- #
+        L += [r"\subsection{W1: ten languages --- in-language validity is exact; "
+              r"cross-language transfer is bimodal}\label{sec:w1}"]
+        rows = []
+        for lg in LANGS:
+            cells = [esc(lg)] + [f"{m(w1_in(lg, s)):.3f}" for s in W2SC]
+            if lg == ENG:
+                cells += ["--", "--"]
+            else:
+                cells += [f"{m(w1_x('loglik', lg)):.3f}", f"{m(w1_x('supervised', lg)):.3f}"]
+            rows.append(cells)
+        table(L, ["Language", "loglik", "tfidf", "superv.", "off-shelf",
+                  r"X-Eng loglik", r"X-Eng superv."], rows,
+              "W1: in-language FPR at nominal $\\alpha=0.05$ (four scorers; calibrated and "
+              "tested within the language) and English-calibrated cross-language FPR.", "w1")
+        in_cells = [m(w1_in(lg, s)) for lg in LANGS for s in W2SC]
+        x_ll = {lg: m(w1_x("loglik", lg)) for lg in xlangs}
+        over = sorted(((v, lg) for lg, v in x_ll.items() if v > 0.05), reverse=True)
+        max_sup_x = max(m(w1_x(s, lg)) for s in ("tfidf", "supervised", "offshelf")
+                        for lg in xlangs)
+        over_txt = ", ".join(rf"{lg} {v:.3f}" for v, lg in over)
+        L += [rf"Calibrated within each language, all {len(LANGS)*len(W2SC)} language--scorer "
+            rf"cells sit at or below nominal (FPR {min(in_cells):.3f}--{max(in_cells):.3f}; no "
+            r"cell rejects the exact test): the certificate's distribution-freeness is real, "
+            r"and \emph{any} population can be certified by calibrating on it. Deploying the "
+            r"\emph{English}-calibrated certificate cross-lingually is bimodal for the "
+            rf"likelihood score: {n_under} of {len(xlangs)} languages \emph{{under}}-flag "
+            r"(FPR below nominal --- the conservative, power-less direction), while "
+            rf"{over_txt} blow past it, the Cyrillic and Hangul extremes ($\approx$1.0) being "
+            r"essentially every human flagged. The mechanism is language identity: GPT-2 "
+            r"assigns non-Latin-script text uniformly low likelihood, which lands either side "
+            r"of the English threshold wholesale. The three classifier-based scores never "
+            rf"inflate cross-lingually (max FPR {max_sup_x:.3f}): they fail safe, at the price "
+            r"of near-zero cross-language power (Figure~\ref{fig:f9_multilingual}).",]
+        figure(L, "f9_multilingual.png",
+               "W1: in-language validity (left) vs.\\ English-calibrated cross-language FPR "
+               "(right) at nominal $\\alpha=0.05$.", 0.98)
+
+        # ------------------------------- W2 ------------------------------- #
+        L += [r"\subsection{W2: six domains --- transfer direction matters}\label{sec:w2}"]
+        rows = []
+        for d in DOMS:
+            cells = [esc(d), f"{m(w2_in(d, 'loglik')):.3f}"]
+            if d == "hotel":
+                cells += ["--"] * 4
+            else:
+                cells += [f"{m(w2_x(s, d)):.3f}" for s in W2SC]
+            rows.append(cells)
+        table(L, ["Target domain", "In-domain (loglik)", "X loglik", "X tfidf",
+                  "X superv.", "X off-shelf"], rows,
+              "W2: in-domain FPR and hotel-calibrated cross-domain FPR at nominal "
+              "$\\alpha=0.05$.", "w2")
+        xd = {d: m(w2_x("loglik", d)) for d in DOMS if d != "hotel"}
+        off_books = m(w2_x("offshelf", "books")); off_news = m(w2_x("offshelf", "news"))
+        max_sup_xd = max(m(w2_x(s, d)) for s in ("tfidf", "supervised")
+                         for d in DOMS if d != "hotel")
+        L += [r"In-domain calibration is again exact in all six domains. Hotel-calibrated "
+            r"likelihood certificates inflate on edited prose: news "
+            rf"{xd['news']:.2f}, reviews {xd['reviews']:.2f}, books {xd['books']:.2f}, "
+            rf"abstracts {xd['abstracts']:.2f} at nominal $0.05$, while poetry is mild "
+            rf"({xd['poetry']:.2f}) --- fluent, professionally edited human text is exactly "
+            r"what a likelihood score mistakes for AI. The supervised scores are conservative "
+            rf"under every domain shift (max FPR {max_sup_xd:.3f}), and the off-the-shelf "
+            rf"detector sits in between (books {off_books:.2f}, news {off_news:.2f}). The full "
+            rf"$6\times 6$ source$\to$target matrix (Figure~\ref{{fig:f8_transfer_matrix}}) "
+            r"shows the asymmetry: calibrating on the \emph{most} fluent domain (news) is safe "
+            r"everywhere but powerless; calibrating on the least fluent (hotel, poetry) is "
+            r"dangerous everywhere else.",]
+        figure(L, "f8_transfer_matrix.png",
+               "W2: $6\\times 6$ cross-domain FPR matrix (calibrate on row, deploy on column) "
+               "at nominal $\\alpha=0.05$.", 0.92)
+
+        # ------------------------------- W3 ------------------------------- #
+        L += [r"\subsection{W3: the LLM-paraphrase attack on innocent humans --- and its "
+              r"repair}\label{sec:w3}"]
+        rows = []
+        for s in W2SC:
+            rows.append([W2LAB[s],
+                         f"{m(w3_fpr(s, 'naive', 'human_clean')):.3f}",
+                         rf"\textbf{{{m(w3_fpr(s, 'naive', 'human_para')):.3f}}}",
+                         f"{m(w3_fpr(s, 'robust', 'human_para')):.3f}",
+                         f"{m(w3_tpr(s, 'naive', 'ai_clean')):.2f}",
+                         f"{m(w3_tpr(s, 'robust', 'ai_clean')):.2f}"])
+        table(L, ["Score", "FPR clean", "FPR para (naive)", "FPR para (robust)",
+                  "TPR (naive)", "TPR (robust)"], rows,
+              "W3 at $\\alpha=0.05$: LLM-paraphrased human text under naive vs.\\ "
+              "paraphrase-aware robust calibration, and the power cost on clean AI text.", "w3")
+        sup_n = para_naive["supervised"]; sup_r = para_rob["supervised"]
+        sup_tpr_n = m(w3_tpr("supervised", "naive", "ai_clean"))
+        sup_tpr_r = m(w3_tpr("supervised", "robust", "ai_clean"))
+        tf_tpr_n = m(w3_tpr("tfidf", "naive", "ai_clean"))
+        tf_tpr_r = m(w3_tpr("tfidf", "robust", "ai_clean"))
+        L += [r"This is the headline failure: a human who innocently runs their own text "
+            r"through an LLM paraphraser (``please improve my wording'') is accused at "
+            rf"{pn_lo:.2f}--{pn_hi:.2f} instead of $0.05$ --- and unlike the population shifts "
+            r"above, \emph{every} scorer family breaks, including the fine-tuned transformer "
+            rf"({sup_n:.2f}) and the off-the-shelf detector ({para_naive['offshelf']:.2f}). "
+            r"Paraphrase output \emph{is} LLM output; no scorer can be expected to separate "
+            r"paraphrased-human from generated text, so the fix must come from calibration. "
+            r"Modeling the paraphraser in the editor-aware construction (\S 3.4; two modeled "
+            r"variants per calibration human, seeds disjoint from test paraphrases) restores "
+            rf"validity for all four scorers ({min(para_rob.values()):.3f}--{pr_hi:.3f}). "
+            r"Unlike the cheap cleanup-editor insurance of E8, here the power cost is "
+            rf"substantial --- TPR {sup_tpr_n:.2f}$\to${sup_tpr_r:.2f} (fine-tuned) and "
+            rf"{tf_tpr_n:.2f}$\to${tf_tpr_r:.2f} (TF--IDF) on clean AI text --- the honest "
+            r"price of remaining unable to accuse paraphrase-shaped humans "
+            r"(Figure~\ref{fig:f11_paraphrase}).",]
+        figure(L, "f11_paraphrase.png",
+               "W3: naive vs.\\ paraphrase-aware robust calibration under the LLM-paraphrase "
+               "attack at nominal $\\alpha=0.05$.", 0.95)
+
+        # ------------------------------- W4 ------------------------------- #
+        L += [r"\subsection{W4: the diagnostics work --- every violation is caught before "
+              r"deployment}\label{sec:w4}"]
+
+        def w4_pretty(c):
+            if c == "control_english":
+                return "English control (in-population)"
+            if c == "paraphrased_humans":
+                return "LLM-paraphrased humans"
+            if c.startswith("lang_"):
+                return esc(c[5:]) + " humans"
+            if c.startswith("domain_"):
+                return esc(c[7:].capitalize()) + " humans"
+            return esc(c)
+
+        rows = []
+        for c in ll_conds:
+            rec = w4_rec(c, "loglik")
+            fpr_c = m(rec["fpr"])
+            mu, rate = w4_alarm(c, "loglik")
+            fcell = rf"\textbf{{{fpr_c:.3f}}}" if rec["violated"] else f"{fpr_c:.3f}"
+            acell = f"{rate:.2f}" + ("" if mu == 100 else rf" ($m{{=}}{mu}$)")
+            rows.append([w4_pretty(c), fcell, f"{rec['tv_bound_mean']:.2f}",
+                         f"{rec['gamma_bound_mean']:.2f}", acell])
+        table(L, ["Condition", "Realized FPR", r"TV bound", r"$\Gamma$ bound",
+                  r"Alarm@$m{=}100$"], rows,
+              "W4 (log-likelihood score, $\\alpha=0.05$): realized FPR (bold = certified "
+              "violation), plug-in score-space bounds, and pilot-alarm rate. Alarm level "
+              f"$\\rho={ALARM_LVL}$.", "w4")
+        abs_mu, abs_rate = w4_alarm("domain_abstracts", "loglik")
+        L += [rf"Across all four scorers, {len(viol_pairs)} of "
+            rf"{len(ll_conds)*len(W2SC)} condition--scorer pairs at $\alpha=0.05$ are "
+            r"certified violations, and the pilot alarm catches \emph{every one of them}: "
+            rf"rate $\ge{min_viol_alarm100:.2f}$ at $m=100$ unlabeled pilot texts (the small "
+            rf"abstracts pool caps its pilot at $m={abs_mu}$, where the rate is "
+            rf"{abs_rate:.2f}). In-control conditions stay at the design level: the English "
+            rf"control alarms at most {ctrl_max_alarm:.3f} $\le \rho={ALARM_LVL}$, and "
+            r"conservative (under-flagging) shifts never alarm, as they should --- the "
+            r"detector tests over-accusation only. The plug-in bounds behave as the theory "
+            rf"section warned: the TV bound covers the realized FPR in {tv_cov} of "
+            rf"{len(ll_conds)} likelihood conditions (its one miss is by less than $0.01$ on "
+            rf"news), while the binned $\widehat\Gamma\alpha$ bound under-covers in "
+            rf"{len(ll_conds)-ga_cov} of {len(ll_conds)} --- plug-in estimates rank risk "
+            r"usefully but must not be read as certificates; the calibrated alarm is the "
+            r"deployable instrument (Figure~\ref{fig:f10_diagnostics}).",]
+        figure(L, "f10_diagnostics.png",
+               "W4: pilot-alarm rate vs.\\ pilot size $m$ per condition (left) and plug-in "
+               "TV/$\\Gamma$ bounds vs.\\ realized FPR (right).", 0.98)
+
     # ---------------------------- discussion etc ---------------------------- #
     L += [r"\section{Discussion}",
         r"For deployers our results reduce to three rules. First, certify against the humans you "
@@ -344,22 +662,49 @@ def main():
         r"certified power in-domain and fail safe under shift; zero-shot likelihood scores "
         r"transfer power across generators but fail dangerous on shifted humans.",
         r"\section{Limitations}\label{sec:limit}",
-        r"English only; one in-domain corpus (hotel reviews) whose humans skew non-native --- "
-        r"which is what makes the population-shift result vivid, but magnitudes will vary; the "
-        r"cleanup editor under-approximates modern LLM paraphrasers, so E4/E8 bound only the "
-        r"editors tested; GPT-2 is a deliberately modest scorer (the wrapper is scorer-agnostic); "
-        r"and our exact tests certify violations, not their causes --- the fluency mechanism is "
-        r"supported but not isolated. The protocol, released in full, replicates at larger scale "
-        r"directly.",
+        r"The Wave-1 core is English-only with one in-domain corpus (hotel reviews) whose "
+        r"humans skew non-native --- which is what makes the population-shift result vivid, "
+        r"but magnitudes will vary"
+        + (r"; Wave 2 widens this to ten languages and six domains, and replaces the cleanup "
+           r"editor with a T5 ChatGPT-paraphraser (\S\ref{sec:w3}), but uses one paraphraser "
+           r"and one multilingual corpus family" if W2 else
+           r"; the cleanup editor under-approximates modern LLM paraphrasers, so E4/E8 bound "
+           r"only the editors tested")
+        + r". GPT-2 is a deliberately modest scorer (the wrapper is scorer-agnostic); our "
+        r"exact tests certify violations, not their causes --- the fluency mechanism is "
+        r"supported but not isolated"
+        + (r"; and the TV/$\Gamma$ diagnostics are plug-in estimates whose own sampling error "
+           r"is unquantified here (W4 measures, but does not bound, their coverage)" if W2
+           else "")
+        + r". The protocol, released in full, replicates at larger scale directly.",
         r"\section{Conclusion}",
         r"Distribution-free certificates make AI-text detectors accountable, but only within the "
         r"human distribution they were calibrated on. We mapped that boundary --- exact in "
         r"distribution, robust to light editing, broken by population shift, length-biased "
-        r"marginally --- and showed the repairs are cheap. A certificate is a promise about "
-        r"\emph{whom} you calibrated on; deployers should make that promise explicit.",
-        r"\paragraph{Reproducibility.} All numbers derive from two JSON files produced by "
-        r"\texttt{scripts/run\_all.py} and \texttt{scripts/run\_robust.py}; figures and this paper "
-        r"regenerate from them; conformal correctness is asserted by the test suite.",]
+        r"marginally --- and showed the repairs are cheap."
+        + ((r" Wave 2 stress-tests the map at deployment scale: four scorer families "
+            r"(including a fine-tuned transformer and an off-the-shelf detector), ten "
+            r"languages, six domains, and an LLM-paraphrase attack. The pattern is consistent "
+            r"and honest about its epistemics: validity is \emph{exact in-population by "
+            r"construction} --- every language and every domain certifies cleanly when "
+            r"calibrated on itself --- while every cross-population finding is empirical. "
+            r"Likelihood certificates transferred across language or domain fail in both "
+            rf"directions (Russian {ru_x:.3f}, news {news_x:.2f}, versus silent "
+            r"under-flagging elsewhere); LLM-paraphrased innocent humans break \emph{all} "
+            rf"scorer families ({pn_lo:.2f}--{pn_hi:.2f} at nominal $0.05$) and "
+            r"paraphrase-aware calibration repairs them at a real power cost. Crucially, none "
+            r"of these failures need be discovered in production: the $\Gamma\alpha$ and "
+            r"$\alpha+\mathrm{TV}$ bounds live on the one-dimensional score space, and the "
+            r"calibrated pilot alarm built on the same observation caught every certified "
+            rf"violation in this study at $m=100$ unlabeled pilot texts while respecting its "
+            rf"{ALARM_LVL:.2f} false-alarm budget. The bounds remain plug-in estimates, not "
+            r"certificates; the alarm is the deployable instrument.") if W2 else "")
+        + r" A certificate is a promise about \emph{whom} you calibrated on; deployers should "
+        r"make that promise explicit --- and pilot-test it before the first accusation.",
+        r"\paragraph{Reproducibility.} All numbers derive from three JSON files produced by "
+        r"\path{scripts/run_all.py}, \path{scripts/run_robust.py} and "
+        r"\path{scripts/run_wave2.py}; figures and this paper regenerate from them; "
+        r"conformal correctness is asserted by the test suite.",]
 
     refs = [
         ("vovk", "V. Vovk, A. Gammerman, G. Shafer. Algorithmic Learning in a Random World. Springer, 2005."),
