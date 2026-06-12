@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FAITH-Detect — Function-Word-Invariant Detection of AI-Generated Reviews</title>
+<meta name="description" content="FAITH-Detect: should a detector ignore function words? Characterising the trade-offs of function-word-invariant detection of AI-generated reviews.">
+<meta name="theme-color" content="#0a0c12">
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/site.js" defer></script>
+</head>
+<body class="theme-faith">
+
+<a class="skip" href="#main">Skip to content</a>
+<div class="bg-glow" aria-hidden="true"></div>
+<div class="orbs" aria-hidden="true"><span class="orb orb-a"></span><span class="orb orb-b"></span><span class="orb orb-c"></span></div>
+
+<nav class="topnav">
+  <div class="nav-inner">
+    <a class="brand" href="index.html">Trustworthy AI-Text Forensics</a>
+    <a class="navlink" href="index.html">Overview</a>
+    <a class="navlink active" href="faith.html">FAITH-Detect</a>
+    <a class="navlink" href="guard.html">GUARD</a>
+    <div class="nav-dots" aria-label="On this page">
+      <a href="#summary" title="Summary" aria-label="Summary"></a>
+      <a href="#method" title="Method" aria-label="Method"></a>
+      <a href="#results" title="Results" aria-label="Results"></a>
+      <a href="#figures" title="Figures" aria-label="Figures"></a>
+      <a href="#demo" title="Live demo" aria-label="Live demo"></a>
+      <a href="#limitations" title="Limitations" aria-label="Limitations"></a>
+      <a href="#citation" title="Citation" aria-label="Citation"></a>
+    </div>
+  </div>
+  <span class="nav-progress" aria-hidden="true"></span>
+</nav>
+
+<header class="hero">
+  <div class="container">
+    <p class="eyebrow">FAITH-Detect</p>
+    <h1>Should a Detector <span class="grad">Ignore Function Words?</span></h1>
+    <p class="thesis">
+      Making an AI-review detector provably blind to function words preserves in-domain accuracy
+      and hardens it against function-word attacks &mdash; but costs out-of-domain transfer.
+      FAITH-Detect characterises that trade-off instead of claiming a universal win.
+    </p>
+    <div class="btn-row">
+      <a class="btn primary" href="https://huggingface.co/spaces/scar09-22/faith-detect-demo">Live demo</a>
+      <a class="btn" href="assets/FAITH-Detect.pdf">Paper (PDF)</a>
+      <a class="btn" href="https://github.com/scar09-22/FAITH-Detect">Code (GitHub)</a>
+    </div>
+    <div class="hero-stats" aria-label="Headline numbers" data-stagger>
+      <div class="stat glass">
+        <span class="stat-num" data-count="0.936">0.936</span>
+        <span class="stat-label">in-domain macro-F1 (Hard-Mask, 5 seeds)</span>
+      </div>
+      <div class="stat glass">
+        <span class="stat-num" data-count="0.958">0.958</span>
+        <span class="stat-label">macro-F1 under function-word attack</span>
+      </div>
+      <div class="stat glass">
+        <span class="stat-num" data-count="0.000">0.000</span>
+        <span class="stat-label">function-word attribution mass</span>
+      </div>
+      <div class="stat glass">
+        <span class="stat-num" data-count="0.474">0.474</span>
+        <span class="stat-label">OOD-transfer macro-F1 &mdash; the cost</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="main" class="container">
+
+  <section id="summary">
+    <p class="section-kicker" data-reveal>Summary</p>
+    <h2 data-reveal>The question and <span class="grad">the probe</span></h2>
+    <p class="lede" data-reveal>
+      Supervised detectors of AI-generated text reach high in-domain accuracy but lean on
+      superficial cues. One such cue is function words &mdash; articles, prepositions, conjunctions,
+      auxiliaries, pronouns (a 441-word union lexicon). FAITH-Detect trains three RoBERTa-base
+      variants on MAiDE-up hotel reviews (5 seeds each): a standard <strong>Baseline</strong>, a
+      <strong>Soft-Reg</strong> variant that penalises function-word attributions, and a
+      <strong>Hard-Mask</strong> variant that is architecturally unable to see function words.
+      Integrated-Gradients attributions then verify, rather than assume, what each model uses.
+    </p>
+    <div class="callout glass" data-reveal>
+      <h4 class="callout-title">Key findings</h4>
+      <ul>
+        <li><strong>Accuracy is free, invariance is real.</strong> Hard-Mask matches the baseline in-domain
+            (macro-F1 0.936 vs 0.937) while its function-word attribution mass is exactly 0.000
+            (baseline: 0.365 of total attribution).</li>
+        <li><strong>Robustness where the invariance predicts it.</strong> Under a function-word substitution
+            attack the baseline drops to 0.872; Hard-Mask stays at 0.958 with the tightest CI of any cell.</li>
+        <li><strong>The price is paid out of domain.</strong> On RAID review-domain transfer the baseline reaches
+            0.695; Hard-Mask falls to 0.474 &mdash; function-word statistics are part of what transfers.</li>
+        <li><strong>The price is recoverable.</strong> Few-shot adaptation of Hard-Mask with 200 OOD examples
+            lifts macro-F1 from 0.343 to 0.772.</li>
+        <li><strong>Off-the-shelf detectors fare worse on all counts:</strong> the strongest public checkpoint
+            scores 0.549 macro-F1 on this data and collapses to 0.353 under the same function-word attack.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="method">
+    <p class="section-kicker" data-reveal>Method</p>
+    <h2 data-reveal>The probe, <span class="grad">in one picture</span></h2>
+    <div class="method-figure glass">
+      <svg class="method-svg" viewBox="0 0 980 250" role="img" data-reveal
+           aria-label="Method diagram: review tokens with function words greyed out flow through a FUNC mask, then a RoBERTa encoder, to a verdict with zero function-word attribution mass.">
+
+        <!-- input tokens -->
+        <g class="node" style="--d:0s">
+          <text x="20" y="28" class="sub">Input review tokens</text>
+          <g class="fw">
+            <rect class="chip" x="20" y="48" width="44" height="28" rx="8"/>
+            <text class="chip-label" x="42" y="67" text-anchor="middle">The</text>
+          </g>
+          <rect class="chip" x="72" y="48" width="56" height="28" rx="8"/>
+          <text class="chip-label" x="100" y="67" text-anchor="middle">room</text>
+          <g class="fw">
+            <rect class="chip" x="136" y="48" width="46" height="28" rx="8"/>
+            <text class="chip-label" x="159" y="67" text-anchor="middle">was</text>
+          </g>
+          <rect class="chip" x="190" y="48" width="82" height="28" rx="8"/>
+          <text class="chip-label" x="231" y="67" text-anchor="middle">spotless</text>
+          <g class="fw">
+            <rect class="chip" x="20" y="86" width="46" height="28" rx="8"/>
+            <text class="chip-label" x="43" y="105" text-anchor="middle">and</text>
+          </g>
+          <g class="fw">
+            <rect class="chip" x="74" y="86" width="42" height="28" rx="8"/>
+            <text class="chip-label" x="95" y="105" text-anchor="middle">the</text>
+          </g>
+          <rect class="chip" x="124" y="86" width="54" height="28" rx="8"/>
+          <text class="chip-label" x="151" y="105" text-anchor="middle">staff</text>
+          <g class="fw">
+            <rect class="chip" x="186" y="86" width="52" height="28" rx="8"/>
+            <text class="chip-label" x="212" y="105" text-anchor="middle">were</text>
+          </g>
+          <rect class="chip" x="20" y="124" width="50" height="28" rx="8"/>
+          <text class="chip-label" x="45" y="143" text-anchor="middle">kind</text>
+        </g>
+        <g class="node" style="--d:.2s">
+          <g class="fw">
+            <rect class="chip" x="20" y="176" width="26" height="16" rx="5"/>
+          </g>
+          <text x="54" y="189" class="sub">greyed = function word (441-word union lexicon)</text>
+        </g>
+
+        <!-- wire 1 -->
+        <path class="wire" pathLength="1" d="M285,100 L347,100" style="--d:.15s"/>
+        <polygon class="arrowhead node" points="358,100 345,93 345,107" style="--d:.35s"/>
+
+        <!-- FUNC mask -->
+        <g class="node" style="--d:.3s">
+          <rect class="box acc" x="362" y="58" width="178" height="84" rx="14"/>
+          <text x="451" y="90" text-anchor="middle" class="label">[FUNC] mask</text>
+          <text x="451" y="113" text-anchor="middle" class="sub">every function word</text>
+          <text x="451" y="130" text-anchor="middle" class="sub">&rarr; [FUNC]</text>
+        </g>
+
+        <!-- wire 2 -->
+        <path class="wire" pathLength="1" d="M540,100 L592,100" style="--d:.5s"/>
+        <polygon class="arrowhead node" points="603,100 590,93 590,107" style="--d:.7s"/>
+
+        <!-- encoder -->
+        <g class="node" style="--d:.6s">
+          <rect class="box" x="607" y="58" width="183" height="84" rx="14"/>
+          <text x="698" y="90" text-anchor="middle" class="label">RoBERTa encoder</text>
+          <text x="698" y="113" text-anchor="middle" class="sub">Hard-Mask variant</text>
+          <text x="698" y="130" text-anchor="middle" class="sub">5 seeds</text>
+        </g>
+
+        <!-- wire 3 -->
+        <path class="wire" pathLength="1" d="M790,100 L840,100" style="--d:.85s"/>
+        <polygon class="arrowhead node" points="851,100 838,93 838,107" style="--d:1.05s"/>
+
+        <!-- verdict -->
+        <g class="node" style="--d:.95s">
+          <rect class="box acc" x="855" y="58" width="108" height="84" rx="14"/>
+          <text x="909" y="84" text-anchor="middle" class="label">Verdict</text>
+          <text x="909" y="104" text-anchor="middle" class="sub">AI / Human</text>
+          <text x="909" y="124" text-anchor="middle" class="sub accent-text">FW mass</text>
+          <text x="909" y="138" text-anchor="middle" class="sub accent-text">= 0.000</text>
+        </g>
+      </svg>
+      <p class="method-caption">
+        The Hard-Mask probe: every token in the 441-word function-word union lexicon (greyed) is
+        replaced by a single <code>[FUNC]</code> token before the encoder ever sees the text, so the
+        detector is architecturally unable to use function words. Integrated-Gradients attributions
+        confirm the invariance: function-word attribution mass is exactly 0.000, vs 0.365 for the baseline.
+      </p>
+    </div>
+  </section>
+
+  <section id="results">
+    <p class="section-kicker" data-reveal>Results</p>
+    <h2 data-reveal>Three variants, <span class="grad">four conditions</span></h2>
+
+    <div class="tabs" data-tabs data-reveal>
+      <div class="tab-list" role="tablist" aria-label="FAITH-Detect results">
+        <button class="tab" role="tab" id="t-main" aria-controls="p-main" aria-selected="true" type="button">Main grid</button>
+        <button class="tab" role="tab" id="t-attr" aria-controls="p-attr" aria-selected="false" type="button">Attribution evidence</button>
+        <button class="tab" role="tab" id="t-shelf" aria-controls="p-shelf" aria-selected="false" type="button">Off-the-shelf context</button>
+        <button class="tab" role="tab" id="t-fewshot" aria-controls="p-fewshot" aria-selected="false" type="button">Few-shot OOD recovery</button>
+      </div>
+
+      <div class="tab-panel" role="tabpanel" id="p-main" aria-labelledby="t-main">
+        <div class="table-wrap">
+          <table class="results">
+            <caption>Macro-F1, mean [95% CI] over 5 seeds (RoBERTa-base, MAiDE-up hotel reviews;
+            OOD = RAID reviews domain; attacks at 50% substitution rate). Source:
+            <code>results_colab/results/full_results.json</code>.</caption>
+            <thead>
+              <tr>
+                <th>Variant</th>
+                <th>In-domain</th>
+                <th>Function-word attack</th>
+                <th>Synonym attack</th>
+                <th>OOD transfer</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Baseline</td>
+                <td class="num">0.937 <span class="ci">[0.910, 0.965]</span></td>
+                <td class="num">0.872 <span class="ci">[0.784, 0.960]</span></td>
+                <td class="num">0.884 <span class="ci">[0.845, 0.924]</span></td>
+                <td class="num best">0.695 <span class="ci">[0.620, 0.770]</span></td>
+              </tr>
+              <tr>
+                <td>Soft-Reg</td>
+                <td class="num">0.938 <span class="ci">[0.902, 0.974]</span></td>
+                <td class="num">0.870 <span class="ci">[0.777, 0.962]</span></td>
+                <td class="num">0.864 <span class="ci">[0.802, 0.925]</span></td>
+                <td class="num">0.682 <span class="ci">[0.582, 0.783]</span></td>
+              </tr>
+              <tr>
+                <td>Hard-Mask (FAITH)</td>
+                <td class="num">0.936 <span class="ci">[0.919, 0.954]</span></td>
+                <td class="num best">0.958 <span class="ci">[0.947, 0.969]</span></td>
+                <td class="num best">0.899 <span class="ci">[0.872, 0.926]</span></td>
+                <td class="num broken">0.474 <span class="ci">[0.391, 0.557]</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="tab-panel" role="tabpanel" id="p-attr" aria-labelledby="t-attr" hidden>
+        <h3>Is the invariance real? Attribution evidence</h3>
+        <div class="table-wrap">
+          <table class="results">
+            <caption>Integrated-Gradients faithfulness summary (100 test texts, seed-0 models).
+            FW mass = share of total attribution on function words.</caption>
+            <thead>
+              <tr><th>Variant</th><th>FW attribution mass</th><th>Deletion AUC</th><th>Insertion AUC</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Baseline</td><td class="num">0.365</td><td class="num">0.895</td><td class="num">0.891</td></tr>
+              <tr><td>Soft-Reg</td><td class="num">0.300</td><td class="num">0.900</td><td class="num">0.904</td></tr>
+              <tr><td>Hard-Mask (FAITH)</td><td class="num best">0.000</td><td class="num">0.929</td><td class="num">0.972</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="tab-panel" role="tabpanel" id="p-shelf" aria-labelledby="t-shelf" hidden>
+        <h3>Context: off-the-shelf and zero-shot detectors on the same data</h3>
+        <div class="table-wrap">
+          <table class="results">
+            <caption>Macro-F1, single evaluation (seed 0), same test set and attacks. Source:
+            <code>results/offshelf.json</code>, <code>results/zeroshot.json</code>.</caption>
+            <thead>
+              <tr><th>Detector</th><th>In-domain</th><th>FW attack</th><th>Synonym attack</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Hello-SimpleAI ChatGPT-detector (RoBERTa)</td>
+                  <td class="num">0.549</td><td class="num broken">0.353</td><td class="num broken">0.339</td></tr>
+              <tr><td>OpenAI RoBERTa-base detector</td>
+                  <td class="num">0.404</td><td class="num broken">0.293</td><td class="num">0.466</td></tr>
+              <tr><td>Zero-shot log-likelihood (GPT-2)</td>
+                  <td class="num">0.742</td><td class="num broken">0.355</td><td class="num">&mdash;</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="tab-panel" role="tabpanel" id="p-fewshot" aria-labelledby="t-fewshot" hidden>
+        <h3>Recovering OOD performance: few-shot adaptation of Hard-Mask</h3>
+        <div class="table-wrap">
+          <table class="results">
+            <caption>OOD macro-F1 after fine-tuning the Hard-Mask checkpoint with k labelled OOD examples
+            (DistilRoBERTa replication; mean [95% CI], 3 seeds for k &gt; 0). Source:
+            <code>results/fewshot_hardmask.json</code>.</caption>
+            <thead>
+              <tr><th>OOD shots</th><th>0</th><th>50</th><th>100</th><th>200</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Macro-F1</td>
+                <td class="num">0.343</td>
+                <td class="num">0.473 <span class="ci">[0.333, 0.614]</span></td>
+                <td class="num">0.586 <span class="ci">[0.376, 0.795]</span></td>
+                <td class="num best">0.772 <span class="ci">[0.757, 0.788]</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="table-note">Only 69.0% (89/129) of in-domain-significant function words keep their
+        AI-vs-human direction out of domain (<code>results/fw_stats.json</code>) &mdash; consistent with
+        function-word cues being genuinely informative but domain-bound.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="figures">
+    <p class="section-kicker" data-reveal>Figures</p>
+    <h2 data-reveal>Selected <span class="grad">figures</span></h2>
+    <p class="lede" data-reveal>Click any figure to zoom.</p>
+    <div class="masonry" data-stagger>
+
+      <figure class="figure-card glass">
+        <img src="assets/faith-fw-attribution-mass.png" alt="Box plots of attribution mass on function words for Baseline, SoftReg and Hard-Mask" loading="lazy">
+        <figcaption><strong>Function-word attribution mass.</strong> Integrated-Gradients mass on
+        function words is substantial for the baseline, only partially reduced by soft
+        regularisation, and exactly zero under Hard-Mask &mdash; the invariance is architectural,
+        not statistical.</figcaption>
+      </figure>
+
+      <figure class="figure-card glass">
+        <img src="assets/faith-robustness.png" alt="Macro-F1 under function-word and synonym attacks per variant" loading="lazy">
+        <figcaption><strong>Attack robustness.</strong> Hard-Mask is unmoved by function-word
+        substitution (0.958 mean macro-F1 vs 0.872 for the baseline) and also edges ahead under
+        synonym attack.</figcaption>
+      </figure>
+
+      <figure class="figure-card glass">
+        <img src="assets/faith-ood-transfer.png" alt="OOD transfer macro-F1 per variant on RAID reviews" loading="lazy">
+        <figcaption><strong>OOD transfer.</strong> The cost of invariance: on RAID review-domain
+        transfer Hard-Mask drops to 0.474 macro-F1 vs 0.695 for the baseline &mdash; the headline
+        trade-off of the paper.</figcaption>
+      </figure>
+
+      <figure class="figure-card glass">
+        <img src="assets/faith-fw-words.png" alt="Per-word AI vs human z-scores for function words, in-domain vs OOD" loading="lazy">
+        <figcaption><strong>Which function words carry signal.</strong> Per-word AI-vs-human
+        z-scores in-domain and out-of-domain; only 69% of significant words keep their sign
+        across domains, explaining why a function-word-reliant detector transfers
+        unreliably.</figcaption>
+      </figure>
+
+      <figure class="figure-card glass">
+        <img src="assets/faith-indomain.png" alt="In-domain performance of all variants" loading="lazy">
+        <figcaption><strong>In-domain performance.</strong> All three variants are statistically
+        indistinguishable in-domain (0.936&ndash;0.938 macro-F1) &mdash; ignoring function words is
+        free where the training distribution rules.</figcaption>
+      </figure>
+
+      <figure class="figure-card glass">
+        <img src="assets/faith-faithfulness.png" alt="Faithfulness metrics: deletion and insertion AUC per variant" loading="lazy">
+        <figcaption><strong>Explanation faithfulness.</strong> Deletion/insertion AUCs confirm the
+        Integrated-Gradients explanations track model behaviour for all variants, so the
+        attribution-mass comparison is meaningful.</figcaption>
+      </figure>
+
+      <figure class="figure-card glass">
+        <img src="assets/faith-ood-diagnostic.png" alt="Where Hard-Mask attribution mass goes in vs out of domain" loading="lazy">
+        <figcaption><strong>OOD failure diagnostic.</strong> In-domain, Hard-Mask attends to hotel
+        content vocabulary; out-of-domain its attribution lands on unfamiliar content words
+        (film, characters) &mdash; the model has no domain-general fallback once function words are
+        removed.</figcaption>
+      </figure>
+
+      <figure class="figure-card glass">
+        <img src="assets/faith-category-ablation.png" alt="Ablation masking individual function-word categories" loading="lazy">
+        <figcaption><strong>Category ablation.</strong> Masking single categories (determiners,
+        pronouns, auxiliaries, &hellip;) versus the full union shows the OOD cost accumulates across
+        categories rather than tracing to one word class.</figcaption>
+      </figure>
+
+    </div>
+  </section>
+
+  <section id="demo">
+    <p class="section-kicker" data-reveal>Live demo</p>
+    <h2 data-reveal>Try it <span class="grad">in the browser</span></h2>
+    <p class="lede" data-reveal>Paste a review and compare the Baseline and Hard-Mask verdicts,
+    with the function-word masking shown explicitly. Embedded from Hugging Face Spaces.</p>
+    <div class="demo-frame glass" data-reveal>
+      <iframe src="https://scar09-22-faith-detect-demo.hf.space" loading="lazy"
+              title="FAITH-Detect live demo (Hugging Face Space)"></iframe>
+    </div>
+    <p class="demo-links" data-reveal>
+      <a href="https://huggingface.co/spaces/scar09-22/faith-detect-demo">Open full screen on Hugging Face &#8599;</a>
+      <span>If the embed does not load, use the full-screen link.</span>
+    </p>
+  </section>
+
+  <section id="limitations">
+    <p class="section-kicker" data-reveal>Scope</p>
+    <h2 data-reveal>Honest <span class="grad">limitations</span></h2>
+    <div class="callout warn glass" data-reveal>
+      <h4 class="callout-title">What this work does not claim</h4>
+      <ul>
+        <li><strong>A characterised trade-off, not a universal win.</strong> Hard-Mask buys attack
+            robustness and verifiable invariance at a real OOD cost (0.695 &rarr; 0.474 macro-F1).
+            Whether the trade is worth it depends on the deployment threat model.</li>
+        <li><strong>Hotel-review domain is primary.</strong> Training and in-domain evaluation use
+            MAiDE-up English hotel reviews; OOD evidence comes from RAID review-domain pools.
+            Claims should not be extrapolated to essays, abstracts, or other genres without
+            re-evaluation.</li>
+        <li><strong>Lexical attacks only.</strong> Robustness is shown for function-word and synonym
+            substitution at a 50% rate; paraphrase-model attacks are out of scope here.</li>
+        <li><strong>Significance is suggestive, not decisive, in-domain.</strong> McNemar's test on
+            baseline vs Hard-Mask in-domain predictions gives p = 0.152 &mdash; the in-domain
+            equivalence claim is "no detectable difference", not superiority.</li>
+        <li><strong>Few-shot recovery uses labelled OOD data</strong> (up to 200 examples) and a
+            DistilRoBERTa replication; it shows the cost is recoverable, not that it vanishes
+            zero-shot.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="citation">
+    <p class="section-kicker" data-reveal>Reference</p>
+    <h2 data-reveal>Citation</h2>
+    <div class="bibtex-wrap" data-reveal>
+      <pre class="bibtex glass" id="bibtex-faith">@article{faithdetect2026,
+  title   = {Should a Detector Ignore Function Words? Characterising the
+             Trade-offs of Function-Word-Invariant Detection of
+             AI-Generated Reviews},
+  author  = {Anonymous},
+  year    = {2026},
+  note    = {Code and results: \url{https://github.com/scar09-22/FAITH-Detect}}
+}</pre>
+      <button class="btn copy-btn" type="button" data-copy="#bibtex-faith"
+              data-copied-msg="BibTeX copied to clipboard">Copy BibTeX</button>
+    </div>
+    <div class="btn-row" data-reveal>
+      <a class="btn primary" href="assets/FAITH-Detect.pdf">Download the paper (PDF)</a>
+      <a class="btn" href="https://github.com/scar09-22/FAITH-Detect">github.com/scar09-22/FAITH-Detect</a>
+      <a class="btn" href="https://huggingface.co/spaces/scar09-22/faith-detect-demo">Live demo</a>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-grid" data-stagger>
+      <div class="footer-col">
+        <h4 class="footer-title">Pages</h4>
+        <a href="index.html">Overview</a>
+        <a href="faith.html">FAITH-Detect</a>
+        <a href="guard.html">GUARD</a>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-title">This project</h4>
+        <a href="assets/FAITH-Detect.pdf">Paper (PDF)</a>
+        <a href="https://github.com/scar09-22/FAITH-Detect">Code (GitHub)</a>
+        <a href="https://huggingface.co/spaces/scar09-22/faith-detect-demo">Live demo</a>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-title">Companion</h4>
+        <a href="guard.html">GUARD (decision-level guarantees)</a>
+        <a href="assets/GUARD.pdf">GUARD paper (PDF)</a>
+        <a href="https://huggingface.co/spaces/scar09-22/guard-certificate-demo">GUARD demo</a>
+      </div>
+    </div>
+    <div class="footer-fineprint" data-reveal>
+      <span>FAITH-Detect &mdash; part of <a href="index.html">Trustworthy AI-Text Forensics</a>.</span>
+      <span>Static site, no build step. All numbers read from the released results JSONs.</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

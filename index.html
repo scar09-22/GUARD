@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trustworthy AI-Text Forensics</title>
+<meta name="description" content="Two complementary studies on trustworthy detection of AI-generated text: FAITH-Detect (evidence quality of detector explanations) and GUARD (decision-level false-accusation guarantees).">
+<meta name="theme-color" content="#0a0c12">
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/site.js" defer></script>
+</head>
+<body class="theme-home">
+
+<a class="skip" href="#main">Skip to content</a>
+<div class="bg-glow" aria-hidden="true"></div>
+<div class="orbs" aria-hidden="true"><span class="orb orb-a"></span><span class="orb orb-b"></span><span class="orb orb-c"></span></div>
+
+<nav class="topnav">
+  <div class="nav-inner">
+    <a class="brand" href="index.html">Trustworthy AI-Text Forensics</a>
+    <a class="navlink active" href="index.html">Overview</a>
+    <a class="navlink" href="faith.html">FAITH-Detect</a>
+    <a class="navlink" href="guard.html">GUARD</a>
+    <div class="nav-dots" aria-label="On this page">
+      <a href="#thread" title="The connecting thread" aria-label="The connecting thread"></a>
+      <a href="#projects" title="Projects" aria-label="Projects"></a>
+      <a href="#methodology" title="Methodology" aria-label="Methodology"></a>
+    </div>
+  </div>
+  <span class="nav-progress" aria-hidden="true"></span>
+</nav>
+
+<header class="hero full">
+  <canvas id="constellation" aria-hidden="true"></canvas>
+  <div class="container">
+    <p class="eyebrow">Research project pages</p>
+    <h1>Trustworthy <span class="grad">AI-Text Forensics</span></h1>
+    <p class="thesis">
+      Detectors of AI-generated text are deployed to accuse people. These two studies ask what
+      that requires: <strong>FAITH-Detect</strong> interrogates the <em>evidence</em> a detector relies on,
+      and <strong>GUARD</strong> stress-tests the <em>decision-level guarantee</em> a deployer can actually certify.
+    </p>
+    <div class="btn-row">
+      <a class="btn faith" href="faith.html">Explore FAITH-Detect</a>
+      <a class="btn guard" href="guard.html">Explore GUARD</a>
+    </div>
+    <div class="hero-stats" aria-label="Headline numbers" data-stagger>
+      <div class="stat glass">
+        <span class="stat-num" data-count="0.365">0.365</span>
+        <span class="stat-label">baseline attribution mass on function words</span>
+      </div>
+      <div class="stat glass">
+        <span class="stat-num" data-count="0.000">0.000</span>
+        <span class="stat-label">after Hard-Mask training (FAITH-Detect)</span>
+      </div>
+      <div class="stat glass">
+        <span class="stat-num" data-count="0.526">0.526</span>
+        <span class="stat-label">FPR under human population shift at &alpha; = 0.05 (GUARD)</span>
+      </div>
+      <div class="stat glass">
+        <span class="stat-num" data-count="10" data-suffix="&times;">10&times;</span>
+        <span class="stat-label">violation of the certified bound</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="main" class="container">
+
+  <section id="thread">
+    <p class="section-kicker" data-reveal>The connecting thread</p>
+    <h2 data-reveal>From <span class="grad">evidence quality</span> to decision guarantees</h2>
+    <p class="lede" data-reveal>
+      A detection score is only the start of a forensic argument. First, the score should rest on
+      evidence that survives scrutiny: FAITH-Detect shows that standard detectors place roughly a
+      third of their attribution mass on function words (articles, prepositions, pronouns) and
+      characterises, across five seeds, exactly what is gained and lost by forcing a detector to
+      ignore them. Second, even a well-evidenced score must be turned into an accusation
+      responsibly: GUARD wraps any detector score in a split-conformal certificate that bounds the
+      false-accusation rate, then maps empirically where that certificate holds, where it breaks,
+      and how a deployer can tell the difference with a small pilot sample.
+    </p>
+
+    <div class="flow-band glass" data-reveal>
+      <svg class="flow-svg" viewBox="0 0 1000 200" role="img"
+           aria-label="Flow diagram: FAITH-Detect, evidence quality, flows into GUARD, decision guarantees">
+        <defs>
+          <linearGradient id="flowgrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" style="stop-color:var(--faith-b)"/>
+            <stop offset="1" style="stop-color:var(--guard-a)"/>
+          </linearGradient>
+        </defs>
+        <text x="500" y="30" text-anchor="middle" class="sub">any detector score</text>
+        <rect class="box" x="18" y="55" width="300" height="100" rx="18" style="stroke:var(--faith-a)"/>
+        <text x="168" y="98" text-anchor="middle" class="label">FAITH-Detect</text>
+        <text x="168" y="124" text-anchor="middle" class="sub">evidence quality &mdash; what does the</text>
+        <text x="168" y="141" text-anchor="middle" class="sub">detector actually look at?</text>
+        <path class="flow-line" d="M318,105 C420,55 580,155 678,105" stroke="url(#flowgrad)"/>
+        <polygon points="678,105 664,98 666,112" style="fill:var(--guard-a)"/>
+        <rect class="box" x="682" y="55" width="300" height="100" rx="18" style="stroke:var(--guard-a)"/>
+        <text x="832" y="98" text-anchor="middle" class="label">GUARD</text>
+        <text x="832" y="124" text-anchor="middle" class="sub">decision guarantees &mdash; can the</text>
+        <text x="832" y="141" text-anchor="middle" class="sub">false-accusation rate be certified?</text>
+        <text x="500" y="185" text-anchor="middle" class="sub">evidence quality &rarr; decision guarantees</text>
+      </svg>
+    </div>
+
+    <div class="connector" data-stagger>
+      <div class="step glass">
+        <strong>FAITH-Detect</strong><br>
+        What is the detector's evidence, and is it an artefact?
+        Function-word-invariant training as a controlled probe.
+      </div>
+      <div class="step glass">
+        <strong>GUARD</strong><br>
+        Given any detector score, when can a deployer certify
+        &ldquo;false-accusation rate &le; &alpha;&rdquo; &mdash; and when does that certificate silently fail?
+      </div>
+    </div>
+  </section>
+
+  <section id="projects">
+    <p class="section-kicker" data-reveal>Projects</p>
+    <h2 data-reveal>Two studies, <span class="grad">one deployment story</span></h2>
+    <div class="project-grid" data-stagger>
+
+      <article class="project-card glass faith tilt">
+        <span class="proj-tag">Detection + Explainability</span>
+        <h3>FAITH-Detect</h3>
+        <p><span class="question">Should a detector ignore function words?</span> A function-word-invariant
+        (Hard-Mask) detector keeps in-domain accuracy, becomes provably insensitive to
+        function-word attacks, and pays a measurable out-of-domain price &mdash; a characterised
+        trade-off, not a universal win.</p>
+        <img src="assets/faith-fw-attribution-mass.png" alt="Box plot of attribution mass on function words: substantial for Baseline and SoftReg, zero for Hard-Mask (FAITH)" loading="lazy">
+        <p class="stat-line">
+          Macro-F1, 5 seeds (mean): in-domain 0.936 vs 0.937 for the baseline;
+          function-word attack 0.958 vs 0.872; OOD reviews 0.474 vs 0.695.
+          Function-word attribution mass: 0.365 &rarr; 0.000.
+        </p>
+        <div class="card-actions">
+          <a class="btn primary" href="faith.html">Project page</a>
+          <a class="btn" href="assets/FAITH-Detect.pdf">Paper (PDF)</a>
+          <a class="btn" href="https://huggingface.co/spaces/scar09-22/faith-detect-demo">Live demo</a>
+        </div>
+      </article>
+
+      <article class="project-card glass guard tilt">
+        <span class="proj-tag">Conformal Guarantees</span>
+        <h3>GUARD</h3>
+        <p><span class="question">When can you trust the certificate?</span> Split-conformal calibration bounds the
+        false-accusation rate of any detector score. GUARD maps where the bound holds
+        (in-domain, generator shift, human-edit attacks) and where it breaks
+        (human population shift) &mdash; and shows the breakage is detectable.</p>
+        <img src="assets/guard-certificate-map.png" alt="Bar chart of empirical false positive rate across deployment conditions at alpha 0.05: in-domain holds, human population shift violates the bound" loading="lazy">
+        <p class="stat-line">
+          At &alpha; = 0.05 (200 repeats): in-domain FPR 0.049&ndash;0.051 across all five scorers;
+          under human population shift, up to 0.526 (entropy scorer) &mdash; a 10&times; violation.
+          Mondrian calibration restores per-length validity.
+        </p>
+        <div class="card-actions">
+          <a class="btn primary" href="guard.html">Project page</a>
+          <a class="btn" href="assets/GUARD.pdf">Paper (PDF)</a>
+          <a class="btn" href="https://huggingface.co/spaces/scar09-22/guard-certificate-demo">Live demo</a>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <section id="methodology">
+    <p class="section-kicker" data-reveal>Shared methodology</p>
+    <h2 data-reveal>How the numbers <span class="grad">are produced</span></h2>
+    <ul class="pill-list" data-stagger>
+      <li>Every figure and table regenerates from one results JSON</li>
+      <li>Multi-seed / multi-repeat with 95% confidence intervals</li>
+      <li>Leakage-aware, entity-grouped splits</li>
+      <li>Attacks applied symmetrically to human and AI text</li>
+      <li>Honest-claims contract: limitations reported alongside wins</li>
+    </ul>
+    <p class="lede" data-reveal>
+      Both projects evaluate on review-domain data (MAiDE-up hotel reviews; RAID multi-generator
+      pools) with grouped-by-entity splits to prevent leakage, and both report failure modes as
+      first-class results: FAITH-Detect's out-of-domain cost and GUARD's certificate breakage
+      under population shift are headline findings, not footnotes.
+    </p>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-grid" data-stagger>
+      <div class="footer-col">
+        <h4 class="footer-title">Pages</h4>
+        <a href="index.html">Overview</a>
+        <a href="faith.html">FAITH-Detect</a>
+        <a href="guard.html">GUARD</a>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-title">Papers</h4>
+        <a href="assets/FAITH-Detect.pdf">FAITH-Detect (PDF)</a>
+        <a href="assets/GUARD.pdf">GUARD (PDF)</a>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-title">Live demos</h4>
+        <a href="https://huggingface.co/spaces/scar09-22/faith-detect-demo">FAITH-Detect demo</a>
+        <a href="https://huggingface.co/spaces/scar09-22/guard-certificate-demo">GUARD certificate demo</a>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-title">Code</h4>
+        <a href="https://github.com/scar09-22/FAITH-Detect">FAITH-Detect on GitHub</a>
+        <a href="https://github.com/scar09-22/GUARD">GUARD on GitHub</a>
+      </div>
+    </div>
+    <div class="footer-fineprint" data-reveal>
+      <span>Trustworthy AI-Text Forensics &mdash; FAITH-Detect &amp; GUARD project pages.</span>
+      <span>Static site, no build step. All numbers read from the released results JSONs.</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

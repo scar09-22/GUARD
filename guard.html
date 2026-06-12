@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GUARD — When Can You Trust the Certificate?</title>
+<meta name="description" content="GUARD: stress-testing distribution-free false-accusation guarantees for AI-text detection. Where the split-conformal certificate holds, where it breaks, and how to tell.">
+<meta name="theme-color" content="#0a0c12">
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/site.js" defer></script>
+</head>
+<body class="theme-guard">
+
+<a class="skip" href="#main">Skip to content</a>
+<div class="bg-glow" aria-hidden="true"></div>
+<div class="orbs" aria-hidden="true"><span class="orb orb-a"></span><span class="orb orb-b"></span><span class="orb orb-c"></span></div>
+
+<nav class="topnav">
+  <div class="nav-inner">
+    <a class="brand" href="index.html">Trustworthy AI-Text Forensics</a>
+    <a class="navlink" href="index.html">Overview</a>
+    <a class="navlink" href="faith.html">FAITH-Detect</a>
+    <a class="navlink active" href="guard.html">GUARD</a>
+    <div class="nav-dots" aria-label="On this page">
+      <a href="#summary" title="Summary" aria-label="Summary"></a>
+      <a href="#method" title="Method" aria-label="Method"></a>
+      <a href="#results" title="Results" aria-label="Results"></a>
+      <a href="#figures" title="Figures" aria-label="Figures"></a>
+      <a href="#demo" title="Live demo" aria-label="Live demo"></a>
+      <a href="#limitations" title="Limitations" aria-label="Limitations"></a>
+      <a href="#citation" title="Citation" aria-label="Citation"></a>
+    </div>
+  </div>
+  <span class="nav-progress" aria-hidden="true"></span>
+</nav>
+
+<header class="hero">
+  <div class="container">
+    <p class="eyebrow">GUARD</p>
+    <h1>When Can You Trust <span class="grad">the Certificate?</span></h1>
+    <p class="thesis">
+      Split-conformal calibration turns any AI-text detector score into an accusation rule with a
+      finite-sample bound on the false-accusation rate. GUARD maps empirically where that
+      certificate holds, where it breaks, and how a deployer can detect the breakage before
+      anyone is accused.
+    </p>
+    <div class="btn-row">
+      <a class="btn primary" href="https://huggingface.co/spaces/scar09-22/guard-certificate-demo">Live demo</a>
+      <a class="btn" href="assets/GUARD.pdf">Paper (PDF)</a>
+      <a class="btn" href="https://github.com/scar09-22/GUARD">Code (GitHub)</a>
+    </div>
+    <div class="hero-stats" aria-label="Headline numbers" data-stagger>
+      <div class="stat glass">
+        <span class="stat-num" data-count="5">5</span>
+        <span class="stat-label">scorers stress-tested</span>
+      </div>
+      <div class="stat glass">
+        <span class="stat-num" data-count="200">200</span>
+        <span class="stat-label">calibration/test repeats per cell</span>
+      </div>
+      <div class="stat glass">
+        <span class="stat-num" data-count="0.049">0.049</span>
+        <span class="stat-label">in-domain FPR at &alpha; = 0.05 &mdash; the bound holds</span>
+      </div>
+      <div class="stat glass">
+        <span class="stat-num" data-count="0.526">0.526</span>
+        <span class="stat-label">FPR under human population shift &mdash; the bound breaks</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="main" class="container">
+
+  <section id="summary">
+    <p class="section-kicker" data-reveal>Summary</p>
+    <h2 data-reveal>The certificate <span class="grad">asymmetry</span></h2>
+    <p class="lede" data-reveal>
+      The split-conformal false-accusation bound (flag a text as AI only when its conformal
+      p-value &le; &alpha;) depends only on the exchangeability of human calibration and human test
+      text &mdash; the AI distribution is irrelevant to validity. That asymmetry yields sharp,
+      testable predictions: the certificate must survive generator shift and AI evasion attacks
+      untouched, while human-side changes (population shift, human edits, calibration leakage,
+      length heterogeneity) can silently break it. GUARD tests all of these conditions with
+      five scorers (GPT-2 log-likelihood, log-rank, entropy, Fast-DetectGPT, and a supervised
+      TF-IDF model) on MAiDE-up hotel reviews and RAID pools, 200 calibration/test repeats per cell.
+    </p>
+    <div class="callout glass" data-reveal>
+      <h4 class="callout-title">Key findings</h4>
+      <ul>
+        <li><strong>The certificate holds in-domain, exactly as theory says.</strong> At &alpha; = 0.05
+            the empirical FPR is 0.049&ndash;0.051 for all five scorers, and the full FPR
+            distribution matches the Beta envelope.</li>
+        <li><strong>Human population shift breaks it &mdash; by design, and detectably.</strong> Calibrated
+            on hotel-review humans, tested on other review-platform humans: FPR up to 0.526 at
+            &alpha; = 0.05 (entropy), a 10&times; violation. On scientific-abstract humans: up to 0.247.</li>
+        <li><strong>Human-edit attacks did not inflate FPR here.</strong> Function-word and synonym edits
+            on human text pushed scores in the conservative direction (FPR &le; 0.005 at 30% edit
+            rate for GPT-2 scorers); an LLM-style cleanup proxy left FPR at the nominal level.</li>
+        <li><strong>Power is the price, and evasion attacks pay it.</strong> Certified at &alpha; = 0.05,
+            clean TPR ranges from 0.193 (entropy) to 0.879 (TF-IDF); a 30% synonym evasion attack
+            collapses GPT-2-statistic scorers to &le; 0.020 TPR while TF-IDF retains 0.834.</li>
+        <li><strong>Length heterogeneity hides per-bin violations; Mondrian fixes them.</strong> Marginal
+            calibration yields per-length-bin FPR up to 0.183 at &alpha; = 0.05 (log-likelihood,
+            longest reviews); per-bin Mondrian calibration brings every bin to 0.030&ndash;0.046.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="method">
+    <p class="section-kicker" data-reveal>Method</p>
+    <h2 data-reveal>The certificate, <span class="grad">in one picture</span></h2>
+    <div class="method-figure glass">
+      <svg class="method-svg" viewBox="0 0 980 250" role="img" data-reveal
+           aria-label="Method diagram: human calibration scores produce a conformal p-value; flagging when p is at most alpha yields a certificate stamping the false positive rate at most alpha, with an alpha dial set to 0.05.">
+
+        <!-- calibration scores -->
+        <g class="node" style="--d:0s">
+          <rect class="box" x="20" y="45" width="280" height="130" rx="16"/>
+          <text x="160" y="80" text-anchor="middle" class="label">Human calibration scores</text>
+          <text x="160" y="102" text-anchor="middle" class="sub">n = 250 hotel-review humans</text>
+          <line class="axis" x1="45" y1="142" x2="275" y2="142"/>
+          <circle class="dotc" cx="52" cy="142" r="3"/>
+          <circle class="dotc" cx="63" cy="142" r="3"/>
+          <circle class="dotc" cx="71" cy="142" r="3"/>
+          <circle class="dotc" cx="84" cy="142" r="3"/>
+          <circle class="dotc" cx="95" cy="142" r="3"/>
+          <circle class="dotc" cx="103" cy="142" r="3"/>
+          <circle class="dotc" cx="118" cy="142" r="3"/>
+          <circle class="dotc" cx="127" cy="142" r="3"/>
+          <circle class="dotc" cx="139" cy="142" r="3"/>
+          <circle class="dotc" cx="152" cy="142" r="3"/>
+          <circle class="dotc" cx="160" cy="142" r="3"/>
+          <circle class="dotc" cx="174" cy="142" r="3"/>
+          <circle class="dotc" cx="189" cy="142" r="3"/>
+          <circle class="dotc" cx="197" cy="142" r="3"/>
+          <circle class="dotc" cx="212" cy="142" r="3"/>
+          <circle class="dotc" cx="226" cy="142" r="3"/>
+          <circle class="dotc" cx="241" cy="142" r="3"/>
+          <circle class="dotc" cx="255" cy="142" r="3"/>
+          <circle class="dotc" cx="266" cy="142" r="3"/>
+          <text x="160" y="165" text-anchor="middle" class="sub">entity-grouped splits</text>
+        </g>
+
+        <!-- wire 1 -->
+        <path class="wire" pathLength="1" d="M300,110 L362,110" style="--d:.2s"/>
+        <polygon class="arrowhead node" points="373,110 360,103 360,117" style="--d:.4s"/>
+
+        <!-- p-value -->
+        <g class="node" style="--d:.35s">
+          <rect class="box" x="377" y="60" width="205" height="100" rx="16"/>
+          <text x="479" y="95" text-anchor="middle" class="label">Conformal p-value</text>
+          <text x="479" y="118" text-anchor="middle" class="sub">rank of the test score</text>
+          <text x="479" y="135" text-anchor="middle" class="sub">among calibration scores</text>
+        </g>
+
+        <!-- wire 2 -->
+        <path class="wire" pathLength="1" d="M582,110 L712,110" style="--d:.55s"/>
+        <polygon class="arrowhead node" points="723,110 710,103 710,117" style="--d:.75s"/>
+        <text x="650" y="98" text-anchor="middle" class="sub node" style="--d:.65s">flag as AI if p &le; &alpha;</text>
+
+        <!-- certificate stamp -->
+        <circle class="wire stamp-ring" pathLength="1" cx="795" cy="110" r="58" style="--d:.7s;stroke-width:2.5"/>
+        <circle class="wire stamp-ring" pathLength="1" cx="795" cy="110" r="48" style="--d:.85s;opacity:.55"/>
+        <g class="node" style="--d:1s">
+          <text x="795" y="103" text-anchor="middle" class="sub accent-text" style="letter-spacing:.22em">CERTIFIED</text>
+          <text x="795" y="130" text-anchor="middle" class="label">FPR &le; &alpha;</text>
+        </g>
+
+        <!-- alpha dial -->
+        <path class="wire" pathLength="1" d="M725.7,70 A80,80 0 0 1 864.3,70" style="--d:.9s;opacity:.55"/>
+        <line class="wire" pathLength="1" x1="790" y1="38.2" x2="788.9" y2="22.2" style="--d:1.05s;stroke-width:2.5"/>
+        <text x="789" y="14" text-anchor="middle" class="sub accent-text node" style="--d:1.15s">&alpha; = 0.05</text>
+        <text x="712" y="62" text-anchor="middle" class="sub node" style="--d:1.05s">0.005</text>
+        <text x="878" y="62" text-anchor="middle" class="sub node" style="--d:1.05s">0.10</text>
+
+        <!-- asymmetry note -->
+        <text x="490" y="225" text-anchor="middle" class="sub node" style="--d:1.2s">validity
+          depends only on human-side exchangeability &mdash; the AI distribution is irrelevant</text>
+      </svg>
+      <p class="method-caption">
+        Split-conformal certification: score a test text, rank it against 250 held-out human
+        calibration scores to get a conformal p-value, and flag it as AI only when p &le; &alpha;.
+        The resulting finite-sample guarantee FPR &le; &alpha; depends only on human-side
+        exchangeability &mdash; which is exactly where GUARD goes looking for failures.
+      </p>
+    </div>
+  </section>
+
+  <section id="results">
+    <p class="section-kicker" data-reveal>Results</p>
+    <h2 data-reveal>Where the bound holds, <span class="grad">where it breaks</span></h2>
+
+    <div class="tabs" data-tabs data-reveal>
+      <div class="tab-list" role="tablist" aria-label="GUARD results">
+        <button class="tab" role="tab" id="t-e1" aria-controls="p-e1" aria-selected="true" type="button">Validity (E1)</button>
+        <button class="tab" role="tab" id="t-shift" aria-controls="p-shift" aria-selected="false" type="button">Population shift (E2/E3)</button>
+        <button class="tab" role="tab" id="t-edits" aria-controls="p-edits" aria-selected="false" type="button">Edit attacks (E4)</button>
+        <button class="tab" role="tab" id="t-power" aria-controls="p-power" aria-selected="false" type="button">Power &amp; evasion (E7)</button>
+        <button class="tab" role="tab" id="t-mondrian" aria-controls="p-mondrian" aria-selected="false" type="button">Mondrian fix (E6)</button>
+      </div>
+
+      <div class="tab-panel" role="tabpanel" id="p-e1" aria-labelledby="t-e1">
+        <h3>Validity in-distribution (E1)</h3>
+        <div class="table-wrap">
+          <table class="results">
+            <caption>Empirical false-positive rate, mean [95% band] over 200 entity-grouped
+            calibration/test partitions (n<sub>cal</sub> = 250 hotel-review humans). The bound
+            FPR &le; &alpha; holds for every scorer at every &alpha;. Source: <code>results/guard_results.json</code> (E1).</caption>
+            <thead>
+              <tr><th>Scorer</th><th>&alpha; = 0.01</th><th>&alpha; = 0.05</th><th>&alpha; = 0.10</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>log-likelihood</td>
+                <td class="num">0.008 <span class="ci">[0.000, 0.032]</span></td>
+                <td class="num">0.049 <span class="ci">[0.020, 0.096]</span></td>
+                <td class="num">0.097 <span class="ci">[0.044, 0.144]</span></td></tr>
+              <tr><td>log-rank</td>
+                <td class="num">0.008 <span class="ci">[0.000, 0.032]</span></td>
+                <td class="num">0.049 <span class="ci">[0.020, 0.100]</span></td>
+                <td class="num">0.100 <span class="ci">[0.048, 0.156]</span></td></tr>
+              <tr><td>entropy</td>
+                <td class="num">0.008 <span class="ci">[0.000, 0.028]</span></td>
+                <td class="num">0.051 <span class="ci">[0.016, 0.100]</span></td>
+                <td class="num">0.100 <span class="ci">[0.044, 0.164]</span></td></tr>
+              <tr><td>Fast-DetectGPT</td>
+                <td class="num">0.008 <span class="ci">[0.000, 0.024]</span></td>
+                <td class="num">0.049 <span class="ci">[0.016, 0.096]</span></td>
+                <td class="num">0.100 <span class="ci">[0.052, 0.156]</span></td></tr>
+              <tr><td>TF-IDF (supervised)</td>
+                <td class="num">0.008 <span class="ci">[0.000, 0.028]</span></td>
+                <td class="num">0.050 <span class="ci">[0.020, 0.092]</span></td>
+                <td class="num">0.101 <span class="ci">[0.056, 0.156]</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="tab-panel" role="tabpanel" id="p-shift" aria-labelledby="t-shift" hidden>
+        <h3>Where the certificate breaks: human population shift (E2/E3)</h3>
+        <div class="table-wrap">
+          <table class="results">
+            <caption>Empirical FPR at &alpha; = 0.05, mean [95% CI] over 200 repeats, when the
+            calibration humans (hotel reviews) no longer match the test humans. Bold red = certified
+            bound violated. Source: <code>results/guard_results.json</code> (E2 pool humans, E3 abstracts).</caption>
+            <thead>
+              <tr><th>Scorer</th><th>In-domain humans</th><th>Other review-platform humans</th><th>Scientific-abstract humans</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>log-likelihood</td>
+                <td class="num">0.049</td>
+                <td class="num broken">0.435 <span class="ci">[0.308, 0.567]</span></td>
+                <td class="num broken">0.101 <span class="ci">[0.025, 0.175]</span></td></tr>
+              <tr><td>log-rank</td>
+                <td class="num">0.049</td>
+                <td class="num broken">0.298 <span class="ci">[0.195, 0.411]</span></td>
+                <td class="num">0.049 <span class="ci">[0.017, 0.117]</span></td></tr>
+              <tr><td>entropy</td>
+                <td class="num">0.051</td>
+                <td class="num broken">0.526 <span class="ci">[0.455, 0.667]</span></td>
+                <td class="num broken">0.247 <span class="ci">[0.183, 0.409]</span></td></tr>
+              <tr><td>Fast-DetectGPT</td>
+                <td class="num">0.049</td>
+                <td class="num broken">0.371 <span class="ci">[0.280, 0.414]</span></td>
+                <td class="num broken">0.121 <span class="ci">[0.092, 0.142]</span></td></tr>
+              <tr><td>TF-IDF (supervised)</td>
+                <td class="num">0.050</td>
+                <td class="num">0.000 <span class="ci">[0.000, 0.003]</span></td>
+                <td class="num">0.006 <span class="ci">[0.000, 0.008]</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="table-note">The violation is one-sided and large &mdash; exactly the failure mode a
+        deployer must rule out. Because it appears as excess flags on a small pilot sample of
+        in-population human text, a pre-deployment pilot diagnostic detects it before accusations
+        are made.</p>
+      </div>
+
+      <div class="tab-panel" role="tabpanel" id="p-edits" aria-labelledby="t-edits" hidden>
+        <h3>Human-edit attacks on the certificate (E4)</h3>
+        <div class="table-wrap">
+          <table class="results">
+            <caption>Empirical FPR at &alpha; = 0.05 when human test text is edited (30% edit rate;
+            calibration on clean humans). All cells remain at or below the certified level &mdash; for
+            these lexical edits the certificate fails conservative, not unsafe. Source:
+            <code>results/guard_results.json</code> (E4).</caption>
+            <thead>
+              <tr><th>Scorer</th><th>Clean</th><th>Function-word edits</th><th>Synonym edits</th><th>Cleanup proxy</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>log-likelihood</td><td class="num">0.049</td><td class="num">0.000</td><td class="num">0.002</td><td class="num">0.044</td></tr>
+              <tr><td>log-rank</td><td class="num">0.049</td><td class="num">0.000</td><td class="num">0.002</td><td class="num">0.045</td></tr>
+              <tr><td>entropy</td><td class="num">0.051</td><td class="num">0.000</td><td class="num">0.005</td><td class="num">0.046</td></tr>
+              <tr><td>Fast-DetectGPT</td><td class="num">0.049</td><td class="num">0.000</td><td class="num">0.002</td><td class="num">0.046</td></tr>
+              <tr><td>TF-IDF (supervised)</td><td class="num">0.050</td><td class="num">0.031</td><td class="num">0.039</td><td class="num">0.047</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="tab-panel" role="tabpanel" id="p-power" aria-labelledby="t-power" hidden>
+        <h3>The cost of certification: power, clean vs evasion (E7)</h3>
+        <div class="table-wrap">
+          <table class="results">
+            <caption>True-positive rate on AI text at the certified &alpha; = 0.05 operating point,
+            mean [95% CI] over 200 repeats; evasion = 30% synonym substitution on AI text
+            (certificate untouched &mdash; humans unchanged). Source: <code>results/guard_results.json</code> (E7).</caption>
+            <thead>
+              <tr><th>Scorer</th><th>TPR, clean AI</th><th>TPR, synonym evasion</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>log-likelihood</td>
+                <td class="num">0.374 <span class="ci">[0.275, 0.460]</span></td>
+                <td class="num broken">0.008 <span class="ci">[0.002, 0.010]</span></td></tr>
+              <tr><td>log-rank</td>
+                <td class="num">0.300 <span class="ci">[0.242, 0.380]</span></td>
+                <td class="num broken">0.009 <span class="ci">[0.004, 0.010]</span></td></tr>
+              <tr><td>entropy</td>
+                <td class="num">0.193 <span class="ci">[0.148, 0.292]</span></td>
+                <td class="num broken">0.020 <span class="ci">[0.014, 0.040]</span></td></tr>
+              <tr><td>Fast-DetectGPT</td>
+                <td class="num">0.236 <span class="ci">[0.144, 0.276]</span></td>
+                <td class="num broken">0.001 <span class="ci">[0.000, 0.004]</span></td></tr>
+              <tr><td>TF-IDF (supervised)</td>
+                <td class="num best">0.879 <span class="ci">[0.850, 0.916]</span></td>
+                <td class="num best">0.834 <span class="ci">[0.794, 0.894]</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="tab-panel" role="tabpanel" id="p-mondrian" aria-labelledby="t-mondrian" hidden>
+        <h3>Length heterogeneity and the Mondrian fix (E6)</h3>
+        <div class="table-wrap">
+          <table class="results">
+            <caption>Per-length-bin empirical FPR at &alpha; = 0.05 (log-likelihood scorer, mean over
+            200 repeats). Marginal calibration is valid on average but mis-covers per bin; Mondrian
+            (per-bin) calibration restores per-bin validity. Source: <code>results/guard_results.json</code> (E6).</caption>
+            <thead>
+              <tr><th>Review length (words)</th><th>0&ndash;30</th><th>30&ndash;60</th><th>60&ndash;120</th><th>120+</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Marginal calibration</td>
+                <td class="num">0.005</td><td class="num">0.050</td>
+                <td class="num broken">0.098</td><td class="num broken">0.183</td></tr>
+              <tr><td>Mondrian (per-bin)</td>
+                <td class="num">0.046</td><td class="num">0.046</td>
+                <td class="num best">0.034</td><td class="num best">0.030</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="figures">
+    <p class="section-kicker" data-reveal>Figures</p>
+    <h2 data-reveal>Selected <span class="grad">figures</span></h2>
+    <p class="lede" data-reveal>Click any figure to zoom.</p>
+    <div class="masonry" data-stagger>
+
+      <figure class="figure-card glass">
+        <img src="assets/guard-certificate-map.png" alt="Empirical FPR across deployment conditions at alpha 0.05 for five scorers" loading="lazy">
+        <figcaption><strong>The certificate map.</strong> Empirical FPR (mean, 95% CI) at
+        &alpha; = 0.05 across deployment conditions: in-domain and edited-human conditions respect
+        the bound; human population shift (reviews-humans, abstracts-humans) violates it for
+        every GPT-2-statistic scorer &mdash; the central empirical claim of the paper.</figcaption>
+      </figure>
+
+      <figure class="figure-card glass">
+        <img src="assets/guard-validity-envelope.png" alt="Empirical FPR distribution against theoretical Beta envelope" loading="lazy">
+        <figcaption><strong>Validity envelope (E1).</strong> Across 200 calibration/test
+        partitions the entire empirical FPR distribution sits inside the exact Beta envelope
+        predicted by conformal theory &mdash; the experimental machinery reproduces the theorem
+        before it is stress-tested.</figcaption>
+      </figure>
+
+      <figure class="figure-card glass">
+        <img src="assets/guard-violation-vs-rate.png" alt="Certificate violation versus human edit rate per scorer and attack" loading="lazy">
+        <figcaption><strong>Human-edit attacks (E4).</strong> Empirical FPR versus edit rate for
+        function-word, synonym, and cleanup edits on human text: all curves stay at or below the
+        nominal &alpha; = 0.05 line, so these lexical edits move the certificate in the conservative
+        direction.</figcaption>
+      </figure>
+
+      <figure class="figure-card glass">
+        <img src="assets/guard-leakage.png" alt="Per-repeat FPR distributions for random versus entity-grouped calibration splits" loading="lazy">
+        <figcaption><strong>Calibration leakage probe (E5).</strong> Random versus entity-grouped
+        (hotel-disjoint) calibration: per-repeat FPR distributions overlap at this scale, so
+        certified deployments should still use grouped calibration as cheap insurance &mdash; here it
+        costs nothing.</figcaption>
+      </figure>
+
+      <figure class="figure-card glass">
+        <img src="assets/guard-mondrian.png" alt="Per-length-bin FPR under marginal versus Mondrian calibration" loading="lazy">
+        <figcaption><strong>Mondrian calibration (E6).</strong> Marginal calibration hides
+        per-length miscoverage (longest reviews reach 0.183 FPR at &alpha; = 0.05); calibrating
+        within length bins restores validity bin-by-bin.</figcaption>
+      </figure>
+
+      <figure class="figure-card glass">
+        <img src="assets/guard-power-frontier.png" alt="Power versus certified alpha frontier per scorer" loading="lazy">
+        <figcaption><strong>Power&ndash;certificate frontier (E7).</strong> TPR at each certified
+        &alpha; &isin; {0.005, &hellip;, 0.1} per scorer: certification is free for validity but not
+        for power, and the gap between scorers is the deployer's real choice variable.</figcaption>
+      </figure>
+
+      <figure class="figure-card glass">
+        <img src="assets/guard-per-generator.png" alt="Per-generator detection power at certified alpha" loading="lazy">
+        <figcaption><strong>Generator shift (E2).</strong> Power per RAID generator at the
+        certified operating point: validity is untouched by a new generator (humans unchanged),
+        but power varies widely across the eight generators &mdash; the asymmetry in action.</figcaption>
+      </figure>
+
+    </div>
+  </section>
+
+  <section id="demo">
+    <p class="section-kicker" data-reveal>Live demo</p>
+    <h2 data-reveal>Try it <span class="grad">in the browser</span></h2>
+    <p class="lede" data-reveal>Score a text, see its conformal p-value against the calibration
+    set, and watch the certificate hold or refuse at your chosen &alpha;. Embedded from
+    Hugging Face Spaces.</p>
+    <div class="demo-frame glass" data-reveal>
+      <iframe src="https://scar09-22-guard-certificate-demo.hf.space" loading="lazy"
+              title="GUARD certificate live demo (Hugging Face Space)"></iframe>
+    </div>
+    <p class="demo-links" data-reveal>
+      <a href="https://huggingface.co/spaces/scar09-22/guard-certificate-demo">Open full screen on Hugging Face &#8599;</a>
+      <span>If the embed does not load, use the full-screen link.</span>
+    </p>
+  </section>
+
+  <section id="limitations">
+    <p class="section-kicker" data-reveal>Scope</p>
+    <h2 data-reveal>Honest <span class="grad">limitations</span></h2>
+    <div class="callout warn glass" data-reveal>
+      <h4 class="callout-title">What this work does not claim</h4>
+      <ul>
+        <li><strong>No new conformal method.</strong> The certificate is standard split conformal
+            prediction. The contribution is the empirical validity map, the deployment protocols
+            (entity-grouped and Mondrian calibration, pilot diagnostics), and the
+            certificate-asymmetry framing.</li>
+        <li><strong>The certificate breaks under human population shift &mdash; by design.</strong> The
+            bound assumes exchangeable humans; GUARD's point is that this assumption fails
+            measurably (FPR up to 0.526 at &alpha; = 0.05) and that the failure is detectable with a
+            small pilot sample of in-population human text before deployment. A deployer who
+            skips the pilot inherits the violation.</li>
+        <li><strong>No SOTA power claims.</strong> Scorers are deliberately modest (one GPT-2 forward
+            pass, or TF-IDF); at &alpha; = 0.05 clean TPR is as low as 0.193, and synonym evasion
+            collapses the GPT-2-statistic scorers almost entirely.</li>
+        <li><strong>Human-edit results are proxy-based and scorer-dependent.</strong> Lexical edits
+            (function-word, synonym, cleanup) happened to be conservative for these scorers; that
+            is an empirical observation, not a guarantee for paraphrase-model edits, which are
+            left to the released protocol at full scale.</li>
+        <li><strong>Scope: English reviews and abstracts</strong>, eight RAID generators plus GPT-4
+            hotel reviews; single calibration size (n = 250) per cell.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="citation">
+    <p class="section-kicker" data-reveal>Reference</p>
+    <h2 data-reveal>Citation</h2>
+    <div class="bibtex-wrap" data-reveal>
+      <pre class="bibtex glass" id="bibtex-guard">@article{guard2026,
+  title   = {When Can You Trust the Certificate? Stress-Testing
+             Distribution-Free False-Accusation Guarantees for
+             AI-Text Detection},
+  author  = {Anonymous},
+  year    = {2026},
+  note    = {Repository link coming soon}
+}</pre>
+      <button class="btn copy-btn" type="button" data-copy="#bibtex-guard"
+              data-copied-msg="BibTeX copied to clipboard">Copy BibTeX</button>
+    </div>
+    <div class="btn-row" data-reveal>
+      <a class="btn primary" href="assets/GUARD.pdf">Download the paper (PDF)</a>
+      <a class="btn" href="https://github.com/scar09-22/GUARD">github.com/scar09-22/GUARD</a>
+      <a class="btn" href="https://huggingface.co/spaces/scar09-22/guard-certificate-demo">Live demo</a>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-grid" data-stagger>
+      <div class="footer-col">
+        <h4 class="footer-title">Pages</h4>
+        <a href="index.html">Overview</a>
+        <a href="faith.html">FAITH-Detect</a>
+        <a href="guard.html">GUARD</a>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-title">This project</h4>
+        <a href="assets/GUARD.pdf">Paper (PDF)</a>
+        <a href="https://github.com/scar09-22/GUARD">Code (GitHub)</a>
+        <a href="https://huggingface.co/spaces/scar09-22/guard-certificate-demo">Live demo</a>
+      </div>
+      <div class="footer-col">
+        <h4 class="footer-title">Companion</h4>
+        <a href="faith.html">FAITH-Detect (evidence quality)</a>
+        <a href="assets/FAITH-Detect.pdf">FAITH-Detect paper (PDF)</a>
+        <a href="https://huggingface.co/spaces/scar09-22/faith-detect-demo">FAITH-Detect demo</a>
+      </div>
+    </div>
+    <div class="footer-fineprint" data-reveal>
+      <span>GUARD &mdash; part of <a href="index.html">Trustworthy AI-Text Forensics</a>.</span>
+      <span>Static site, no build step. All numbers read from the released results JSONs.</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
